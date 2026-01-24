@@ -1,0 +1,149 @@
+# Multi-Channel Amplifier Control Configuration
+# Version: 1.0.0
+
+# Global settings
+global:
+  # Timeouts in seconds
+  soundcard_timeout: 900  # 15 minutes
+  power_supply_timeout: 1800  # 30 minutes
+  gpio_delay: 1.0  # Delay between GPIO operations
+
+  # GPIO pins
+  gpio_power_supply: 13
+  gpio_error_led: 26
+
+  # File paths
+  socket_path: /var/run/MultiChannelAmpDaemon.sock
+  pid_file: /var/run/MultiChannelAmpDaemon.pid
+  status_file: /var/run/MultiChannelAmpDaemon.status
+  log_file: /var/log/MultiChannelAmpDaemon.log
+
+  # Logging
+  log_level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Squeezelite settings
+squeezelite:
+  # Path to squeezelite binary
+  binary: /usr/bin/squeezelite
+
+  # Path to callback script
+  callback_script: /usr/local/bin/MultiChannelAmpCallback.py
+
+  # Common squeezelite options (applied to all instances)
+  common_options:
+    - "-a 80:4::"  # ALSA parameters
+    - "-b 500:2000"  # Buffer settings
+    - "-C 5"  # Timeout for control connection
+    - "-r 44100-192000"  # Supported sample rates
+
+  # Logitech Media Server
+  lms_server: 192.168.1.100  # IP of your LMS server (optional)
+
+# Sound card configurations
+soundcards:
+  - id: 1
+    name: KAB9_1
+    description: "Living area - 8 channels"
+
+    # ALSA/USB device info
+    alsa_card: "4"
+    usb_device: "1-2"
+
+    # GPIO configuration
+    gpio:
+      suspend: 12
+      mute: 16
+      led: 17
+
+    # Player/room assignments
+    players:
+      - name: wohnzimmer
+        description: "Living room"
+        alsa_device: "hw:4,0"
+        mac_address: "aa:bb:cc:dd:ee:01"  # Optional: for LMS
+
+      - name: tvzimmer
+        description: "TV room"
+        alsa_device: "hw:4,1"
+        mac_address: "aa:bb:cc:dd:ee:02"
+
+      - name: kueche
+        description: "Kitchen"
+        alsa_device: "hw:4,2"
+        mac_address: "aa:bb:cc:dd:ee:03"
+
+      - name: gaestezimmer
+        description: "Guest room"
+        alsa_device: "hw:4,3"
+        mac_address: "aa:bb:cc:dd:ee:04"
+
+  - id: 2
+    name: KAB9_2
+    description: "Sleeping area - 8 channels"
+
+    alsa_card: "3"
+    usb_device: "3-1"
+
+    gpio:
+      suspend: 6
+      mute: 25
+      led: 27
+
+    players:
+      - name: schlafzimmer
+        description: "Master bedroom"
+        alsa_device: "hw:3,0"
+        mac_address: "aa:bb:cc:dd:ee:05"
+
+      - name: terrasse
+        description: "Terrace"
+        alsa_device: "hw:3,1"
+        mac_address: "aa:bb:cc:dd:ee:06"
+
+      - name: gwc
+        description: "Guest WC"
+        alsa_device: "hw:3,2"
+        mac_address: "aa:bb:cc:dd:ee:07"
+
+      - name: elternbad
+        description: "Master bathroom"
+        alsa_device: "hw:3,3"
+        mac_address: "aa:bb:cc:dd:ee:08"
+
+      - name: balkon
+        description: "Balcony"
+        alsa_device: "hw:3,4"
+        mac_address: "aa:bb:cc:dd:ee:09"
+
+      - name: sauna
+        description: "Sauna"
+        alsa_device: "hw:3,5"
+        mac_address: "aa:bb:cc:dd:ee:0a"
+
+  - id: 3
+    name: KAB9_3
+    description: "Kids area - 8 channels"
+
+    alsa_card: "0"
+    usb_device: "1-1"
+
+    gpio:
+      suspend: 23
+      mute: 24
+      led: 22
+
+    players:
+      - name: kian
+        description: "Kian's room"
+        alsa_device: "hw:0,0"
+        mac_address: "aa:bb:cc:dd:ee:0b"
+
+      - name: sarina
+        description: "Sarina's room"
+        alsa_device: "hw:0,1"
+        mac_address: "aa:bb:cc:dd:ee:0c"
+
+      - name: hobbyraum
+        description: "Hobby room"
+        alsa_device: "hw:0,2"
+        mac_address: "aa:bb:cc:dd:ee:0d"

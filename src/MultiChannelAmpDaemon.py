@@ -3,7 +3,7 @@
 Multi-Channel Amplifier Control Daemon
 Controls power supply and sound cards based on Squeezelite activity
 
-Version: 1.0.0
+Version: 1.0.1
 """
 
 import sys
@@ -14,23 +14,27 @@ import signal
 import socket
 import os
 import argparse
+import yaml
 from pathlib import Path
 from typing import Dict, Set
 from dataclasses import dataclass
 from enum import Enum
 
 # Version
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
-# Configuration - will be set based on debug mode
+# Configuration paths
+DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
+
+# Configuration - will be set based on config file and debug mode
 SOUNDCARD_TIMEOUT = 15 * 60  # 15 minutes in seconds (normal mode)
 POWER_SUPPLY_TIMEOUT = 30 * 60  # 30 minutes in seconds (normal mode)
 GPIO_DELAY = 1.0  # 1 second delay between GPIO operations
 GPIO_ERROR_LED = 26  # GPIO pin for error LED
 GPIO_POWER_SUPPLY = 13  # GPIO pin for power supply control
-STATUS_FILE = "/var/run/amp_control.status"
-PID_FILE = "/var/run/amp_control.pid"
-SOCKET_PATH = "/var/run/amp_control.sock"
+STATUS_FILE = "/var/run/MultiChannelAmpDaemon.status"
+PID_FILE = "/var/run/MultiChannelAmpDaemon.pid"
+SOCKET_PATH = "/var/run/MultiChannelAmpDaemon.sock"
 DEBUG_MODE = False  # Will be set by command line argument
 
 # Logging setup
@@ -38,11 +42,11 @@ logging.basicConfig(
     level=logging.INFO,  # Default level, will be changed to DEBUG if --debug is used
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/var/log/amp_control.log'),
+        logging.FileHandler('/var/log/MultiChannelAmpDaemon.log'),
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger('amp_control')
+logger = logging.getLogger('MultiChannelAmpDaemon')
 
 
 class DeviceState(Enum):
@@ -62,6 +66,29 @@ class SoundcardConfig:
     alsaCard: str     # ALSA card number
     usbDevice: str    # USB device path
     players: Set[str]
+
+
+def loadConfiguration(configPath):
+    """
+    Load configuration from YAML file
+
+    Args:
+        configPath: Path to YAML configuration file
+
+    Returns:
+        dict: Configuration dictionary
+    """
+    try:
+        with open(configPath, 'r') as f:
+            config = yaml.safe_load(f)
+        logger.info(f"Configuration loaded from: {configPath}")
+        return config
+    except FileNotFoundError:
+        logger.error(f"Configuration file not found: {configPath}")
+        raise
+    except yaml.YAMLError as e:
+        logger.error(f"Invalid YAML in configuration file: {e}")
+        raise
 
 
 class SoundcardController:
@@ -292,10 +319,18 @@ class PowerSupplyController:
 class AmpControlDaemon:
     """Main daemon for amplifier control"""
 
-    def __init__(self):
+    def __init__(self, configPath=DEFAULT_CONFIG_PATH):
+        self.configPath = configPath
         self.soundcards: Dict[int, SoundcardController] = {}
         self.playerToSoundcard: Dict[str, int] = {}
-        self.powerSupply = PowerSupplyController(gpioPin=GPIO_POWER_SUPPLY)
+
+        # Load global config for GPIO pins
+        config = loadConfiguration(configPath)
+        globalConfig = config.get('global', {})
+
+        gpioPower = globalConfig.get('gpio_power_supply', GPIO_POWER_SUPPLY)
+        self.powerSupply = PowerSupplyController(gpioPin=gpioPower)
+
         self.running = False
         self.errorLedInitialized = False
         self.socketServer = None
@@ -366,49 +401,62 @@ class AmpControlDaemon:
             logger.critical(f"Exception during error handling: {e}")
 
     def setupSoundcards(self):
-        """Initializes sound card configuration"""
-        configs = [
-            SoundcardConfig(
-                id=1,
-                name="KAB9_1",
-                gpioSuspend=12,
-                gpioMute=16,
-                gpioLed=17,
-                alsaCard="4",
-                usbDevice="1-2",
-                players={"wohnzimmer", "tvzimmer", "kueche", "gaestezimmer"}
-            ),
-            SoundcardConfig(
-                id=2,
-                name="KAB9_2",
-                gpioSuspend=6,
-                gpioMute=25,
-                gpioLed=27,
-                alsaCard="3",
-                usbDevice="3-1",
-                players={"schlafzimmer", "terrasse", "gwc", "elternbad", "balkon", "sauna"}
-            ),
-            SoundcardConfig(
-                id=3,
-                name="KAB9_3",
-                gpioSuspend=23,
-                gpioMute=24,
-                gpioLed=22,
-                alsaCard="0",
-                usbDevice="1-1",
-                players={"kian", "sarina", "hobbyraum"}
-            )
-        ]
+        """Initializes sound card configuration from config file"""
+
+        # Load configuration
+        config = loadConfiguration(self.configPath)
+
+        # Update global timeouts if not in debug mode
+        global SOUNDCARD_TIMEOUT, POWER_SUPPLY_TIMEOUT, GPIO_DELAY
+        if not DEBUG_MODE:
+            globalConfig = config.get('global', {})
+            SOUNDCARD_TIMEOUT = globalConfig.get('soundcard_timeout', SOUNDCARD_TIMEOUT)
+            POWER_SUPPLY_TIMEOUT = globalConfig.get('power_supply_timeout', POWER_SUPPLY_TIMEOUT)
+            GPIO_DELAY = globalConfig.get('gpio_delay', GPIO_DELAY)
+
+            logger.info(f"Timeouts from config: Soundcard={SOUNDCARD_TIMEOUT}s, PowerSupply={POWER_SUPPLY_TIMEOUT}s")
+
+        # Parse soundcard configurations
+        soundcardsConfig = config.get('soundcards', [])
+        if not soundcardsConfig:
+            raise ValueError("No soundcards defined in configuration file")
 
         try:
-            for config in configs:
-                self.soundcards[config.id] = SoundcardController(config, self)
-                for player in config.players:
-                    self.playerToSoundcard[player] = config.id
+            for scConfig in soundcardsConfig:
+                # Extract GPIO configuration
+                gpio = scConfig.get('gpio', {})
 
-            logger.info(f"Initialized with {len(self.soundcards)} sound cards")
+                # Build player set
+                players = set()
+                for player in scConfig.get('players', []):
+                    players.add(player['name'])
+
+                # Create SoundcardConfig
+                soundcardConfig = SoundcardConfig(
+                    id=scConfig['id'],
+                    name=scConfig['name'],
+                    gpioSuspend=gpio['suspend'],
+                    gpioMute=gpio['mute'],
+                    gpioLed=gpio['led'],
+                    alsaCard=scConfig['alsa_card'],
+                    usbDevice=scConfig['usb_device'],
+                    players=players
+                )
+
+                # Create controller
+                self.soundcards[soundcardConfig.id] = SoundcardController(soundcardConfig, self)
+
+                # Map players to soundcard
+                for playerName in players:
+                    self.playerToSoundcard[playerName] = soundcardConfig.id
+
+                logger.info(f"Configured {soundcardConfig.name}: {len(players)} players, "
+                           f"GPIO(S={gpio['suspend']}, M={gpio['mute']}, L={gpio['led']})")
+
+            logger.info(f"Initialized with {len(self.soundcards)} sound cards, {len(self.playerToSoundcard)} total players")
+
         except Exception as e:
-            self.handleError("Failed to initialize sound cards", e)
+            self.handleError("Failed to initialize sound cards from configuration", e)
             raise
 
     def handlePlayerEvent(self, playerName: str, state: int):
@@ -528,11 +576,11 @@ class AmpControlDaemon:
         logger.info("="*80)
         logger.info("=" + " "*78 + "=")
         if DEBUG_MODE:
-            logger.info("=  AMP CONTROL DAEMON STARTING (DEBUG MODE)" + " "*35 + "=")
+            logger.info("=  MULTI-CHANNEL AMP DAEMON STARTING (DEBUG MODE)" + " "*29 + "=")
             logger.info(f"=  Version: {VERSION}" + " "*(80-14-len(VERSION)) + "=")
             logger.info(f"=  Soundcard timeout: {SOUNDCARD_TIMEOUT}s, Power supply timeout: {POWER_SUPPLY_TIMEOUT}s" + " "*(80-73-len(str(SOUNDCARD_TIMEOUT))-len(str(POWER_SUPPLY_TIMEOUT))) + "=")
         else:
-            logger.info("=  AMP CONTROL DAEMON STARTING" + " "*48 + "=")
+            logger.info("=  MULTI-CHANNEL AMP DAEMON STARTING" + " "*42 + "=")
             logger.info(f"=  Version: {VERSION}" + " "*(80-14-len(VERSION)) + "=")
         logger.info("=" + " "*78 + "=")
         logger.info("="*80)
@@ -567,7 +615,7 @@ class AmpControlDaemon:
     def stop(self):
         """Stops the daemon"""
         self.running = False
-        logger.info("Amp Control Daemon shutting down")
+        logger.info("Multi-Channel Amp Daemon shutting down")
 
         # Turn on error LED during shutdown
         if self.errorLedInitialized:
@@ -656,6 +704,9 @@ def main():
     parser.add_argument('--debug', action='store_true',
                        help='Enable debug mode (verbose logging, shorter timeouts)')
     parser.add_argument('--version', action='version', version=f'%(prog)s {VERSION}')
+    parser.add_argument('--config', '-c',
+                       default=DEFAULT_CONFIG_PATH,
+                       help=f'Path to configuration file (default: {DEFAULT_CONFIG_PATH})')
     args = parser.parse_args()
 
     # Configure debug mode
@@ -681,9 +732,14 @@ def main():
         print(f"ERROR: Failed to create PID file: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Start daemon
-    daemon = AmpControlDaemon()
-    daemon.start()
+    # Start daemon with config file
+    try:
+        daemon = AmpControlDaemon(configPath=args.config)
+        daemon.start()
+    except Exception as e:
+        print(f"ERROR: Failed to start daemon: {e}", file=sys.stderr)
+        logger.critical(f"Fatal error during startup: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
