@@ -1,0 +1,36 @@
+[Unit]
+Description=Squeezelite Multi-Instance Launcher
+Documentation=man:squeezelite(1)
+After=network.target sound.target MultiChannelAmpDaemon.service
+Requires=MultiChannelAmpDaemon.service
+BindsTo=MultiChannelAmpDaemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/squeezelite-launcher.py --config /etc/MultiChannelAmpDaemon.yaml
+Restart=on-failure
+RestartSec=5s
+
+# User and group
+User=squeezelite
+Group=audio
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=squeezelite-launcher
+
+# Working directory
+WorkingDirectory=/tmp
+
+# Resource limits
+LimitNOFILE=1024
+Nice=-10
+
+# Process management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
