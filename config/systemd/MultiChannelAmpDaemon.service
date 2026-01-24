@@ -24,7 +24,7 @@ Group=root
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=MultiChannelAmdDaemon
+SyslogIdentifier=MultiChannelAmpDaemon
 
 # Resource limits
 LimitNOFILE=1024
