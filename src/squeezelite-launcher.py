@@ -131,14 +131,14 @@ class SqueezeliteLauncher:
 
         for soundcard in soundcards:
             players = soundcard.get('players', [])
-            logger.info(f"\nSoundcard: {soundcard['name']} ({len(players)} players)")
+            logger.info(f"Soundcard: {soundcard['name']} ({len(players)} players)")
 
             for player in players:
                 totalCount += 1
                 if self.startPlayer(player, soundcard):
                     successCount += 1
 
-        logger.info("\n" + "="*80)
+        logger.info("="*80)
         logger.info(f"Started {successCount}/{totalCount} Squeezelite instances")
         logger.info("="*80)
 
@@ -179,7 +179,7 @@ class SqueezeliteLauncher:
 
     def stopAllPlayers(self):
         """Stop all running Squeezelite instances"""
-        logger.info("\nStopping all Squeezelite instances...")
+        logger.info("Stopping all Squeezelite instances...")
 
         playerNames = list(self.processes.keys())
         for playerName in playerNames:
@@ -232,7 +232,7 @@ class SqueezeliteLauncher:
 
         # Monitor processes
         self.running = True
-        logger.info("\nMonitoring Squeezelite instances... (Ctrl+C to stop)")
+        logger.info("Monitoring Squeezelite instances... (Ctrl+C to stop)")
 
         try:
             self.monitorProcesses()
