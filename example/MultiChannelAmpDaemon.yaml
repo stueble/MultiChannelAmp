@@ -24,26 +24,27 @@ global:
 # Squeezelite settings
 squeezelite:
   # Path to squeezelite binary
-  binary: /usr/bin/squeezelite
+  binary: /usr/local/bin/squeezelite
 
   # Path to callback script
   callback_script: /usr/local/bin/MultiChannelAmpCallback.py
 
   # Common squeezelite options (applied to all instances)
   common_options:
-    - "-a 80:4::"  # ALSA parameters
-    - "-b 500:2000"  # Buffer settings
-    - "-C 5"  # Timeout for control connection
-    - "-r 44100-192000"  # Supported sample rates
+    - "-a 160:4:16:1"  # ALSA parameters
+  #  - "-b 500:2000"  # Buffer settings
+  #  - "-C 5"  # Timeout for control connection
+    - "-R -u V" # Resampling by squeezelite
+    - "-r 44100-44100"  # Supported sample rates
 
   # Logitech Media Server
-  lms_server: 192.168.1.100  # IP of your LMS server (optional)
+  lms_server: 10.20.0.5  # IP of your LMS server (optional)
 
 # Sound card configurations
 soundcards:
   - id: 1
     name: KAB9_1
-    description: "Living area - 8 channels"
+    description: "KAB9 #1"
 
     # ALSA/USB device info
     alsa_card: "4"
@@ -58,28 +59,28 @@ soundcards:
     # Player/room assignments
     players:
       - name: wohnzimmer
-        description: "Living room"
-        alsa_device: "hw:4,0"
+        description: "Wohnzimmer"
+        alsa_device: "wohnzimmer"
         mac_address: "aa:bb:cc:dd:ee:01"  # Optional: for LMS
 
       - name: tvzimmer
-        description: "TV room"
-        alsa_device: "hw:4,1"
+        description: "TV-Zimmer"
+        alsa_device: "tvzimmer"
         mac_address: "aa:bb:cc:dd:ee:02"
 
       - name: kueche
-        description: "Kitchen"
-        alsa_device: "hw:4,2"
+        description: "Küche"
+        alsa_device: "kueche"
         mac_address: "aa:bb:cc:dd:ee:03"
 
       - name: gaestezimmer
         description: "Guest room"
-        alsa_device: "hw:4,3"
+        alsa_device: "gaestezimmer"
         mac_address: "aa:bb:cc:dd:ee:04"
 
   - id: 2
     name: KAB9_2
-    description: "Sleeping area - 8 channels"
+    description: "KAB9 #2"
 
     alsa_card: "3"
     usb_device: "3-1"
@@ -91,38 +92,38 @@ soundcards:
 
     players:
       - name: schlafzimmer
-        description: "Master bedroom"
-        alsa_device: "hw:3,0"
+        description: "Schlafzimmer"
+        alsa_device: "schlafzimmer"
         mac_address: "aa:bb:cc:dd:ee:05"
 
       - name: terrasse
-        description: "Terrace"
-        alsa_device: "hw:3,1"
+        description: "Terrasse"
+        alsa_device: "terrasse"
         mac_address: "aa:bb:cc:dd:ee:06"
 
       - name: gwc
-        description: "Guest WC"
-        alsa_device: "hw:3,2"
+        description: "Gäste WC"
+        alsa_device: "gwc"
         mac_address: "aa:bb:cc:dd:ee:07"
 
       - name: elternbad
-        description: "Master bathroom"
-        alsa_device: "hw:3,3"
+        description: "Elternbad"
+        alsa_device: "elternbad"
         mac_address: "aa:bb:cc:dd:ee:08"
 
       - name: balkon
-        description: "Balcony"
-        alsa_device: "hw:3,4"
+        description: "Balkon"
+        alsa_device: "balkon"
         mac_address: "aa:bb:cc:dd:ee:09"
 
       - name: sauna
         description: "Sauna"
-        alsa_device: "hw:3,5"
+        alsa_device: "sauna"
         mac_address: "aa:bb:cc:dd:ee:0a"
 
   - id: 3
     name: KAB9_3
-    description: "Kids area - 8 channels"
+    description: "KAB9 #3"
 
     alsa_card: "0"
     usb_device: "1-1"
@@ -134,16 +135,16 @@ soundcards:
 
     players:
       - name: kian
-        description: "Kian's room"
-        alsa_device: "hw:0,0"
+        description: "Kian"
+        alsa_device: "kian"
         mac_address: "aa:bb:cc:dd:ee:0b"
 
       - name: sarina
-        description: "Sarina's room"
-        alsa_device: "hw:0,1"
+        description: "Sarina"
+        alsa_device: "sarina"
         mac_address: "aa:bb:cc:dd:ee:0c"
 
       - name: hobbyraum
-        description: "Hobby room"
-        alsa_device: "hw:0,2"
+        description: "Hobbyraum"
+        alsa_device: "hobbyraum"
         mac_address: "aa:bb:cc:dd:ee:0d"
