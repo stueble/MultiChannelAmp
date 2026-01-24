@@ -51,13 +51,13 @@ class SqueezeliteLauncher:
         cmd = [binary]
 
         # Player name
-        cmd.extend(['-n', player['description']])
+        cmd.extend(['-n', f"'{player['description']'"])
 
         # Output device
         cmd.extend(['-o', player['alsa_device']])
 
         # Callback script
-        cmd.extend(['-S', f"{callback} {player['name']}"])
+        cmd.extend(['-S', f"'{callback} {player['name']}'"])
 
         # MAC address (if specified)
         if 'mac_address' in player:
