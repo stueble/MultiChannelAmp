@@ -1,0 +1,4 @@
+SUBSYSTEM=="sound", KERNEL=="card*", KERNELS=="1-2", ATTR{id}="KAB9_1"
+SUBSYSTEM=="sound", KERNEL=="card*", KERNELS=="3-1", ATTR{id}="KAB9_2"
+SUBSYSTEM=="sound", KERNEL=="card*", KERNELS=="1-1", ATTR{id}="KAB9_3"
+
