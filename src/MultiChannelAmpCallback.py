@@ -85,7 +85,7 @@ def main():
         print(f"Invalid state argument: {sys.argv[2]} - {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("Received command {state}", file=sys.stderr)
+    print(f"Received command: {state}", file=sys.stderr)
 
     # Send event to daemon
     if state in [0, 1]:
