@@ -7,7 +7,7 @@ The code was interactively generated with https://claude.ai as a test case. Alth
 
 Copy files to
 * ```/usr/local/bin/MultiChannelAmpDaemon.py``` - Main daemon (executable)
-* ```/usr/local/bin/amp_callback.py``` - Callback script (executable)
+* ```/usr/local/bin/MultiChannelAmpCallback.py``` - Callback script (executable)
 
 Optionally adapt and copy the following configuration files
 * Install and enable system service script ```MultiChannelDaemon.service```, as described in [config/systemd/](config/systemd/)
@@ -18,7 +18,7 @@ Optionally adapt and copy the following configuration files
 
 ```bash
 squeezelite -n kitchen \
-  -S "/usr/local/bin/amp_callback.py kitchen" \
+  -S "/usr/local/bin/MultiChannelAmpCallback.py kitchen" \
   -o kitchen &
 ```
 
