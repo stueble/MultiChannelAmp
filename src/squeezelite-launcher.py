@@ -51,7 +51,7 @@ class SqueezeliteLauncher:
         cmd = [binary]
 
         # Player name
-        cmd.extend(['-n', player['name']])
+        cmd.extend(['-n', player['description']])
 
         # Output device
         cmd.extend(['-o', player['alsa_device']])
