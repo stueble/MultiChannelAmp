@@ -1,0 +1,40 @@
+[Unit]
+Description=Multi-Channel Amplifier Control Daemon
+Documentation=man:MultiChannelAmpDaemon.py(8)
+After=network.target sound.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/MultiChannelAmpDaemon.py
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+# Process management
+PIDFile=/var/run/amp_control.pid
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Security settings
+# Note: Daemon requires root for GPIO access
+User=root
+Group=root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=MultiChannelAmdDaemon
+
+# Resource limits
+LimitNOFILE=1024
+LimitNPROC=64
+
+# Working directory
+WorkingDirectory=/usr/local/bin
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
