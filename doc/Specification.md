@@ -101,7 +101,7 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
 #### Squeezelite Integration
 - Each Squeezelite instance uses `-S` parameter to call callback script
 - Callback script sends events via Unix socket
-- Example: `squeezelite -n wohnzimmer -S "/usr/local/bin/amp_callback.py wohnzimmer"`
+- Example: `squeezelite -n wohnzimmer -S "/usr/local/bin/amp_callback.py wohnzimmer" -o hw:4,0`
 
 ## Error Handling
 
@@ -143,24 +143,50 @@ When daemon stops normally (SIGTERM, SIGINT):
 
 ## File Structure
 
-### Two Separate Files Required
+### Two Separate Python Files Required
 
-#### 1. amp_daemon.py (Main Daemon)
-- Full daemon implementation
-- Version: 1.0.0
-- Configurable constants at top
-- Classes: DeviceState, SoundcardConfig, SoundcardController, PowerSupplyController, AmpControlDaemon
-- Functions: checkAlreadyRunning(), writePidFile(), main()
-- Command-line arguments: --debug, --version
+The system consists of two executable Python scripts that work together:
+
+#### 1. MultiChannelAmpDaemon.py (Main Daemon)
+**Purpose:** Background daemon that manages power supply and sound card states
+
+**Key Components:**
+- **Version Constant:** `VERSION = "1.0.0"` at top of file
+- **Configuration Constants:** SOUNDCARD_TIMEOUT, POWER_SUPPLY_TIMEOUT, GPIO pins, file paths
+- **Enums:** DeviceState (OFF, ON)
+- **Data Classes:** SoundcardConfig (id, name, gpioSuspend, gpioMute, gpioLed, alsaCard, usbDevice, players)
+- **Classes:**
+  - `SoundcardController`: Manages individual sound card via GPIO
+  - `PowerSupplyController`: Manages main power supply via GPIO
+  - `AmpControlDaemon`: Main daemon orchestrating the system
+- **Utility Functions:**
+  - `checkAlreadyRunning()`: Verifies no other daemon instance is running
+  - `writePidFile()`: Creates PID file with current process ID
+  - `main()`: Entry point with argument parsing
+- **Command-line Interface:**
+  - `--debug`: Enable debug mode (1min/2min timeouts, DEBUG logging)
+  - `--version`: Display version number
+
+**Execution:** Runs as background daemon, listens on Unix socket for events
 
 #### 2. amp_callback.py (Callback Script)
-- Lightweight script called by Squeezelite
-- Connects to Unix socket at `/var/run/amp_control.sock`
-- Sends message in format `playername:state\n`
-- Waits for `OK\n` response
-- Timeout: 5 seconds
-- Proper error handling for socket connection failures
-- Exit codes: 0 on success, 1 on failure
+**Purpose:** Lightweight script invoked by Squeezelite to notify daemon of playback events
+
+**Key Components:**
+- **Socket Communication:** Connects to `/var/run/amp_control.sock`
+- **Message Protocol:** Sends `playername:state\n` format
+- **Timeout Handling:** 5-second connection timeout
+- **Error Handling:** Proper error messages for connection failures
+- **Exit Codes:** 0 on success, 1 on failure
+
+**Execution:** Called by Squeezelite via `-S` parameter, sends message and exits immediately
+
+**Integration Example:**
+```bash
+squeezelite -n wohnzimmer \
+  -S "/usr/local/bin/amp_callback.py wohnzimmer" \
+  -o hw:4,0 &
+```
 
 ## Logging
 
@@ -299,7 +325,76 @@ SoundcardController needs a reference to the parent daemon:
 5. Power activation cancels power timer, KAB9_3 activates
 6. System continues running normally
 
-## Testing Considerations
+## Installation and Deployment
+
+### File Installation
+```bash
+# Install daemon
+sudo cp MultiChannelAmpDaemon.py /usr/local/bin/
+sudo chmod +x /usr/local/bin/MultiChannelAmpDaemon.py
+
+# Install callback script
+sudo cp amp_callback.py /usr/local/bin/
+sudo chmod +x /usr/local/bin/amp_callback.py
+```
+
+### Starting the Daemon
+```bash
+# Normal mode
+sudo /usr/local/bin/MultiChannelAmpDaemon.py &
+
+# Debug mode (shorter timeouts, verbose logging)
+sudo /usr/local/bin/MultiChannelAmpDaemon.py --debug &
+
+# Check version
+/usr/local/bin/MultiChannelAmpDaemon.py --version
+```
+
+### Squeezelite Configuration
+Each Squeezelite instance must be started with the `-S` callback parameter:
+
+```bash
+# Example for room "wohnzimmer" on soundcard KAB9_1 (hw:4,0)
+squeezelite -n wohnzimmer \
+  -S "/usr/local/bin/amp_callback.py wohnzimmer" \
+  -o hw:4,0 &
+
+# Example for room "schlafzimmer" on soundcard KAB9_2 (hw:3,0)
+squeezelite -n schlafzimmer \
+  -S "/usr/local/bin/amp_callback.py schlafzimmer" \
+  -o hw:3,0 &
+
+# Example for room "kian" on soundcard KAB9_3 (hw:0,0)
+squeezelite -n kian \
+  -S "/usr/local/bin/amp_callback.py kian" \
+  -o hw:0,0 &
+```
+
+### Systemd Service (Optional)
+For automatic startup on boot, create `/etc/systemd/system/amp-control.service`:
+
+```ini
+[Unit]
+Description=Multi-Channel Amplifier Control Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/MultiChannelAmpDaemon.py
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable amp-control.service
+sudo systemctl start amp-control.service
+sudo systemctl status amp-control.service
+```
 
 ### Debug Mode
 Use `--debug` flag for faster testing:
@@ -310,7 +405,7 @@ Use `--debug` flag for faster testing:
 ### Manual Testing Commands
 ```bash
 # Start daemon in debug mode
-sudo /usr/local/bin/amp_daemon.py --debug
+sudo /usr/local/bin/MultiChannelAmpDaemon.py --debug
 
 # Simulate player events
 echo "wohnzimmer:1" | nc -U /var/run/amp_control.sock  # Start playback
@@ -322,7 +417,85 @@ cat /var/run/amp_control.status
 tail -f /var/log/amp_control.log
 ```
 
-## Security Considerations
+## Troubleshooting
+
+### Common Issues
+
+#### Daemon won't start - "already running"
+```bash
+# Check if daemon is actually running
+ps aux | grep MultiChannelAmpDaemon
+# If not running, remove stale PID file
+sudo rm /var/run/amp_control.pid
+```
+
+#### Socket connection failed
+```bash
+# Check if socket exists
+ls -l /var/run/amp_control.sock
+# Check socket permissions (should be 0666)
+# Restart daemon if socket missing
+```
+
+#### GPIO permissions denied
+```bash
+# Daemon must run as root for GPIO access
+sudo /usr/local/bin/MultiChannelAmpDaemon.py
+```
+
+#### Player events not working
+```bash
+# Test socket directly
+echo "wohnzimmer:1" | nc -U /var/run/amp_control.sock
+# Check logs for errors
+tail -f /var/log/amp_control.log
+# Verify player name matches configuration
+```
+
+#### Soundcard not activating
+```bash
+# Check GPIO states in debug mode logs
+sudo /usr/local/bin/MultiChannelAmpDaemon.py --debug
+# Verify GPIO pin numbers match hardware
+# Check for GPIO initialization errors in logs
+```
+
+### Log Analysis
+
+#### Normal startup sequence
+```
+================================================================================
+=  AMP CONTROL DAEMON STARTING                                                =
+=  Version: 1.0.0                                                             =
+================================================================================
+GPIO initialized for KAB9_1: SUSPEND=12, MUTE=16, LED=17
+GPIO initialized for KAB9_2: SUSPEND=6, MUTE=25, LED=27
+GPIO initialized for KAB9_3: SUSPEND=23, MUTE=24, LED=22
+Initialized with 3 sound cards
+GPIO pin 13 initialized for power supply (HIGH=OFF, LOW=ON)
+Error LED initialized on GPIO 26
+Socket server listening on /var/run/amp_control.sock
+```
+
+#### Normal playback sequence
+```
+Player wohnzimmer starting playback
+Activating main power supply
+Main power supply activated (GPIO=LOW)
+Activating sound card KAB9_1
+KAB9_1: SUSPEND set to LOW
+KAB9_1: MUTE set to LOW
+KAB9_1: LED set to HIGH
+Sound card KAB9_1 activated
+```
+
+#### Error indicators
+```
+Critical error: <error message>
+Error LED activated on GPIO 26
+Emergency shutdown: Deactivating all sound cards
+Emergency shutdown: Power supply deactivated
+```
 
 - Socket permissions (0666) allow any user to send events
 - Daemon must run as root for GPIO access
