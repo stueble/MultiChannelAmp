@@ -74,7 +74,7 @@ soundcards:
         mac_address: "aa:bb:cc:dd:ee:03"
 
       - name: gaestezimmer
-        description: "Guest room"
+        description: "Gästezimmer"
         alsa_device: "gaestezimmer"
         mac_address: "aa:bb:cc:dd:ee:04"
 
