@@ -15,8 +15,8 @@ Optional
 ## Usage example
 
 ```bash
-bashsqueezelite -n kitchen \
+squeezelite -n kitchen \
   -S "/usr/local/bin/amp_callback.py kitchen" \
-  -o hw:4,0 &
+  -o kitchen &
 ```
 
