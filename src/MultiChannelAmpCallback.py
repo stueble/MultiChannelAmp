@@ -10,9 +10,21 @@ Usage from Squeezelite:
 import socket
 import sys
 import os
+import logging
 
 SOCKET_PATH = "/var/run/MultiChannelAmpDaemon.sock"
 TIMEOUT = 5  # seconds
+
+# Logging setup
+logging.basicConfig(
+    level=logging.DEBUG,  # Default level, will be changed to DEBUG if --debug is used
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/MultiChannelAmpCallback.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger('squeezelite-launcher')
 
 
 def sendEvent(playerName: str, state: int) -> bool:
@@ -46,22 +58,22 @@ def sendEvent(playerName: str, state: int) -> bool:
         if response == "OK":
             return True
         else:
-            print(f"Unexpected response: {response}", file=sys.stderr)
+            logger.error(f"Unexpected response: {response}")
             return False
 
     except socket.timeout:
-        print(f"Timeout connecting to daemon at {SOCKET_PATH}", file=sys.stderr)
+        logger.error(f"Timeout connecting to daemon at {SOCKET_PATH}")
         return False
     except FileNotFoundError:
-        print(f"Daemon socket not found at {SOCKET_PATH}", file=sys.stderr)
-        print("Is the amp_control daemon running?", file=sys.stderr)
+        logger.error(f"Daemon socket not found at {SOCKET_PATH}")
+        logger.error("Is the amp_control daemon running?")
         return False
     except ConnectionRefusedError:
-        print(f"Connection refused to {SOCKET_PATH}", file=sys.stderr)
-        print("Is the amp_control daemon running?", file=sys.stderr)
+        logger.error(f"Connection refused to {SOCKET_PATH}")
+        logger.error("Is the amp_control daemon running?")
         return False
     except Exception as e:
-        print(f"Error sending event: {e}", file=sys.stderr)
+        logger.error(f"Error sending event: {e}")
         return False
 
 
@@ -69,7 +81,7 @@ def main():
     """Main entry point"""
     # Check arguments
     if len(sys.argv) != 3:
-        print("Usage: amp_callback.py <player_name> <state>", file=sys.stderr)
+        print("Usage: MultiChannelAmpCallback.py <player_name> <state>", file=sys.stderr)
         print("  player_name: Name of the Squeezelite player", file=sys.stderr)
         print("  state: 1 for play, 0 for stop, 2 for initilization (ignored)", file=sys.stderr)
         sys.exit(1)
@@ -82,10 +94,10 @@ def main():
         if state not in [0, 1, 2]:
             raise ValueError("State must be 0, 1 or 2")
     except ValueError as e:
-        print(f"Invalid state argument: {sys.argv[2]} - {e}", file=sys.stderr)
+        logger.error(f"Invalid state argument: {sys.argv[2]} - {e}")
         sys.exit(1)
 
-    print(f"Received command: {state}", file=sys.stderr)
+    logger.debug(f"Received command: {state}")
 
     # Send event to daemon
     if state in [0, 1]:
