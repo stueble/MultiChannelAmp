@@ -131,6 +131,13 @@ class SoundcardController:
             # Propagate error to daemon
             raise
 
+    def isActivePlayer(self, playerName: str) -> bool:
+        """Checks whether player is already active"""
+        if playerName in self.activePlayers:
+            return true
+        else:
+            return false
+
     def activatePlayer(self, playerName: str):
         """Marks a player as active"""
         with self.lock:
@@ -480,12 +487,12 @@ class AmpControlDaemon:
 
                 # Activate sound card
                 soundcard.activatePlayer(playerName)
-            else:
+            elif soundcard.isActivePlayer(playerName):
                 logger.info(f"Player {playerName} stopping playback")
                 soundcard.deactivatePlayer(playerName)
 
                 # Check if power supply can be deactivated
-                self.checkPowerSupplyDeactivation()
+                # self.checkPowerSupplyDeactivation()
         except Exception as e:
             self.handleError(f"Error handling player event for {playerName}", e)
 
