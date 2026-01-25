@@ -68,7 +68,14 @@ class SqueezeliteLauncher:
         cmd.extend(['-o', player['alsa_device']])
 
         # Callback script
-        cmd.extend(['-S', f"'{callback} {player['name']}'"])
+        # cmd.extend(['-S', f"'{callback} {player['name']}'"])
+
+        # Squeezelite calls: <script> <state>
+        # We need: callback.py playername state
+        # So we create a wrapper command that includes the player name
+        # The -S parameter receives the full command as ONE argument
+        callbackCmd = f"{callback} {player['name']}"
+        cmd.extend(['-S', callbackCmd])
 
         # MAC address (if specified)
         if 'mac_address' in player:
@@ -88,6 +95,7 @@ class SqueezeliteLauncher:
         """Start a single Squeezelite instance"""
         playerName = player['name']
         cmd = self.buildSqueezeliteCommand(player, soundcard)
+        logger.info(f"  Command: {' '.join(cmd)}")
 
         try:
             # Create PID directory if needed
@@ -98,7 +106,8 @@ class SqueezeliteLauncher:
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                start_new_session=True  # Detach from parent
+                start_new_session=True,  # Detach from parent
+                env=os.environ.copy()
             )
 
             self.processes[playerName] = process
@@ -106,14 +115,14 @@ class SqueezeliteLauncher:
             # Write PID file
             pidFile = Path(PID_DIR) / f"{playerName}.pid"
             pidFile.write_text(str(process.pid))
-
             logger.info(f"✓ Started {playerName} (PID: {process.pid})")
-            logger.info(f"  Command: {' '.join(cmd)}")
 
             return True
 
         except Exception as e:
             logger.error(f"✗ Failed to start {playerName}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def startAllPlayers(self):
