@@ -134,9 +134,9 @@ class SoundcardController:
     def isActivePlayer(self, playerName: str) -> bool:
         """Checks whether player is already active"""
         if playerName in self.activePlayers:
-            return true
+            return True
         else:
-            return false
+            return False
 
     def activatePlayer(self, playerName: str):
         """Marks a player as active"""
