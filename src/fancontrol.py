@@ -227,8 +227,8 @@ class PWMFanController:
                 if temp is not None:
                     consecutive_errors = 0
                     duty_cycle = self.calculate_duty_cycle(temp)
+                    self.logger.info(f"Temperature: {temp:.1f}°C")
                     self.set_duty_cycle(duty_cycle)
-                    self.logger.debug(f"Temperature: {temp:.1f}°C")
 
                 else:
                     consecutive_errors += 1
