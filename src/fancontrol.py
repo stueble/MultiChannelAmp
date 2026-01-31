@@ -32,7 +32,7 @@ CONFIG = {
     'update_interval': 20, # seconds
 
     # Error handling
-    'sensor_fail_pwm': 40000,  # 100% on sensor failure
+    'sensor_fail_pwm': 20000,  # 50% on sensor failure
 }
 
 
@@ -235,7 +235,7 @@ class PWMFanController:
                     self.logger.warning(f"Failed to read temperature (attempt {consecutive_errors}/{max_consecutive_errors})")
 
                     if consecutive_errors >= max_consecutive_errors:
-                        self.logger.error("Sensor failure detected - setting fan to 100%")
+                        self.logger.error("Sensor failure detected - setting fan to 50%")
                         self.set_duty_cycle(self.config['sensor_fail_pwm'])
 
                 # Wait for next update
