@@ -1,0 +1,22 @@
+[Unit]
+Description=PWM Fan Control Daemon
+After=network.target
+Documentation=man:fancontrol(8)
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/fancontrol.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Allow access to /sys for PWM and 1-wire
+ProtectSystem=false
+
+[Install]
+WantedBy=multi-user.target
