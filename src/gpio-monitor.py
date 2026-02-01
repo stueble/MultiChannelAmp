@@ -138,22 +138,52 @@ class GpioReader:
     def readGpioLgpio(self, pin: int) -> int:
         """Read GPIO value via lgpio"""
         try:
-            # Request line for input if not already done
+            # lgpio can read GPIOs even if they're claimed by another process
+            # Use gpio_claim_input with AS_IS flag to read without disturbing
             if pin not in self.lines:
-                # lgpio.gpio_claim_input with pull-up or pull-down flags
-                # For reading output pins, we just read without claiming
-                pass
+                # Claim the line for input temporarily
+                # Use LGPIO flags: AS_IS means don't change pull-up/down
+                # We just want to read the current state
+                handle = self.lgpio.gpio_claim_input(self.chip, pin, self.lgpio.SET_PULL_NONE)
+                self.lines[pin] = handle
 
             # Read the GPIO value
             value = self.lgpio.gpio_read(self.chip, pin)
             return value
+
         except Exception as e:
-            # Try to read anyway (might work for output pins)
+            # If claiming fails, the pin might be in use
+            # Try direct read without claiming (this might fail)
             try:
                 value = self.lgpio.gpio_read(self.chip, pin)
                 return value
             except:
-                return -1
+                # Last resort: try to get line info
+                try:
+                    # lgpio allows reading line state even if claimed elsewhere
+                    # but we need to use a different approach
+                    # Read from /sys/kernel/debug/gpio or accept we can't read
+                    return self._readGpioFromDebugfs(pin)
+                except:
+                    return -1
+
+    def _readGpioFromDebugfs(self, pin: int) -> int:
+        """Try to read GPIO value from debugfs (fallback)"""
+        try:
+            # This requires debugfs to be mounted and readable
+            with open('/sys/kernel/debug/gpio', 'r') as f:
+                lines = f.readlines()
+                for line in lines:
+                    # Look for our GPIO line
+                    # Format: gpio-533 (some_name) out hi/lo
+                    if f'gpio-{pin} ' in line or f' gpio-{pin} ' in line:
+                        if ' hi' in line.lower():
+                            return 1
+                        elif ' lo' in line.lower():
+                            return 0
+        except:
+            pass
+        return -1
 
     def readGpioGpiod(self, pin: int) -> int:
         """Read GPIO value via gpiod"""
@@ -213,6 +243,12 @@ class GpioReader:
         """Cleanup GPIO resources"""
         if self.method == 'lgpio' and self.chip is not None:
             try:
+                # Free all claimed lines
+                for pin, handle in self.lines.items():
+                    try:
+                        self.lgpio.gpio_free(self.chip, pin)
+                    except:
+                        pass
                 self.lgpio.gpiochip_close(self.chip)
             except:
                 pass
