@@ -2,13 +2,15 @@
 """
 GPIO Monitor for Raspberry Pi 5
 Outputs GPIO states in InfluxDB line protocol format for Telegraf
+Uses modern GPIO character device interface (gpiod/lgpio)
 
-Version: 1.0.0
+Version: 1.0.1
 """
 
 import sys
 import time
 import argparse
+from pathlib import Path
 from typing import Dict, List
 
 # GPIO configuration - can be loaded from config file
@@ -77,38 +79,91 @@ DEFAULT_GPIOS = {
 
 
 class GpioReader:
-    """Reads GPIO states from sysfs"""
+    """Reads GPIO states using modern GPIO interfaces"""
 
     def __init__(self, gpioConfigs: Dict):
         self.gpioConfigs = gpioConfigs
-        self.useSysfs = True
+        self.method = None
+        self.chip = None
+        self.lines = {}
 
-        # Try to use RPi.GPIO first, fall back to sysfs
+        # Try different GPIO access methods
+        self._initializeGpio()
+
+    def _initializeGpio(self):
+        """Initialize GPIO access - try lgpio, then gpiod, then RPi.GPIO"""
+
+        # Method 1: Try lgpio (native on Pi 5)
+        try:
+            import lgpio
+            self.chip = lgpio.gpiochip_open(0)
+            self.method = 'lgpio'
+            self.lgpio = lgpio
+            print("Using lgpio interface", file=sys.stderr)
+            return
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"lgpio failed: {e}", file=sys.stderr)
+
+        # Method 2: Try gpiod
+        try:
+            import gpiod
+            self.chip = gpiod.Chip('gpiochip0')
+            self.method = 'gpiod'
+            self.gpiod = gpiod
+            print("Using gpiod interface", file=sys.stderr)
+            return
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"gpiod failed: {e}", file=sys.stderr)
+
+        # Method 3: Try RPi.GPIO (legacy, won't work on Pi 5 with new kernels)
         try:
             import RPi.GPIO as GPIO
             GPIO.setmode(GPIO.BCM)
+            self.method = 'RPi.GPIO'
             self.GPIO = GPIO
-            self.useSysfs = False
-        except (ImportError, RuntimeError):
-            # Fall back to sysfs reading
-            self.useSysfs = True
+            print("Using RPi.GPIO interface (legacy)", file=sys.stderr)
+            return
+        except (ImportError, RuntimeError) as e:
+            print(f"RPi.GPIO failed: {e}", file=sys.stderr)
 
-    def readGpioSysfs(self, pin: int) -> int:
-        """Read GPIO value via sysfs"""
+        # No method available
+        print("ERROR: No GPIO library available!", file=sys.stderr)
+        print("Install with: sudo apt install python3-lgpio", file=sys.stderr)
+        self.method = None
+
+    def readGpioLgpio(self, pin: int) -> int:
+        """Read GPIO value via lgpio"""
         try:
-            with open(f'/sys/class/gpio/gpio{pin}/value', 'r') as f:
-                return int(f.read().strip())
-        except FileNotFoundError:
-            # GPIO not exported, try to export it
+            # Request line for input if not already done
+            if pin not in self.lines:
+                # lgpio.gpio_claim_input with pull-up or pull-down flags
+                # For reading output pins, we just read without claiming
+                pass
+
+            # Read the GPIO value
+            value = self.lgpio.gpio_read(self.chip, pin)
+            return value
+        except Exception as e:
+            # Try to read anyway (might work for output pins)
             try:
-                with open('/sys/class/gpio/export', 'w') as f:
-                    f.write(str(pin))
-                time.sleep(0.1)
-                with open(f'/sys/class/gpio/gpio{pin}/value', 'r') as f:
-                    return int(f.read().strip())
+                value = self.lgpio.gpio_read(self.chip, pin)
+                return value
             except:
                 return -1
-        except:
+
+    def readGpioGpiod(self, pin: int) -> int:
+        """Read GPIO value via gpiod"""
+        try:
+            line = self.chip.get_line(pin)
+            if not line.is_requested():
+                line.request(consumer="gpio-monitor", type=self.gpiod.LINE_REQ_DIR_IN)
+            value = line.get_value()
+            return value
+        except Exception as e:
             return -1
 
     def readGpioRpi(self, pin: int) -> int:
@@ -121,10 +176,14 @@ class GpioReader:
 
     def readGpio(self, pin: int) -> int:
         """Read GPIO value (0, 1, or -1 for error)"""
-        if self.useSysfs:
-            return self.readGpioSysfs(pin)
-        else:
+        if self.method == 'lgpio':
+            return self.readGpioLgpio(pin)
+        elif self.method == 'gpiod':
+            return self.readGpioGpiod(pin)
+        elif self.method == 'RPi.GPIO':
             return self.readGpioRpi(pin)
+        else:
+            return -1
 
     def readAllGpios(self) -> Dict[str, Dict]:
         """Read all configured GPIOs"""
@@ -149,6 +208,19 @@ class GpioReader:
             }
 
         return results
+
+    def cleanup(self):
+        """Cleanup GPIO resources"""
+        if self.method == 'lgpio' and self.chip is not None:
+            try:
+                self.lgpio.gpiochip_close(self.chip)
+            except:
+                pass
+        elif self.method == 'gpiod' and self.chip is not None:
+            try:
+                self.chip.close()
+            except:
+                pass
 
 
 class TelegrafFormatter:
@@ -223,15 +295,25 @@ class TelegrafFormatter:
         lines.append("GPIO Status:")
         lines.append("=" * 80)
 
+        errorCount = 0
         for name, data in gpioData.items():
             if data['error']:
                 status = "ERROR"
                 value = "N/A"
+                errorCount += 1
+                reason = f"(Pin {data['pin']} - check permissions)"
             else:
                 value = data['value']
                 status = "ON" if value == 1 else "OFF"
+                reason = ""
 
-            lines.append(f"{name:25} (GPIO {data['pin']:2d}): {status:5} [{value}]  {data['description']}")
+            lines.append(f"{name:25} (GPIO {data['pin']:2d}): {status:5} [{value}]  {data['description']} {reason}")
+
+        if errorCount > 0:
+            lines.append("")
+            lines.append(f"⚠ {errorCount} GPIO(s) could not be read")
+            lines.append("Make sure lgpio is installed: sudo apt install python3-lgpio")
+            lines.append("Try running with: sudo " + ' '.join(sys.argv))
 
         return '\n'.join(lines)
 
@@ -297,7 +379,7 @@ def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
         description='GPIO Monitor for Raspberry Pi - Telegraf compatible output',
-        epilog='Version 1.0.0'
+        epilog='Version 1.0.1'
     )
 
     parser.add_argument(
@@ -334,7 +416,7 @@ def main():
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s 1.0.0'
+        version='%(prog)s 1.0.1'
     )
 
     args = parser.parse_args()
@@ -351,6 +433,10 @@ def main():
     # Initialize reader and formatter
     reader = GpioReader(gpioConfigs)
     formatter = TelegrafFormatter(measurement=args.measurement)
+
+    if reader.method is None:
+        print("ERROR: Cannot access GPIO - no working GPIO library found", file=sys.stderr)
+        sys.exit(1)
 
     # Single read or continuous monitoring
     try:
@@ -390,6 +476,8 @@ def main():
 
     except KeyboardInterrupt:
         print("\nMonitoring stopped", file=sys.stderr)
+    finally:
+        reader.cleanup()
         sys.exit(0)
 
 
