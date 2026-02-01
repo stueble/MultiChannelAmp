@@ -16,4 +16,4 @@ with open(duty_path, "r") as f:
 percent = round((duty / 40000) * 100, 1)
 
 # Ausgabe im Telegraf Line Protocol
-print(f"raspberrypi_pwm,duty=fan value={percent}")
+print(f"pwm,device=case-fan value={percent}")
