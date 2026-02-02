@@ -3,7 +3,7 @@
 Multi-Channel Amplifier Control Daemon
 Controls power supply and sound cards based on Squeezelite activity
 
-Version: 1.0.1
+Version: 1.0.2
 """
 
 import sys
@@ -21,10 +21,10 @@ from dataclasses import dataclass
 from enum import Enum
 
 # Version
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 # Configuration paths
-DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
+DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon/MultiChannelAmpDaemon.yaml"
 
 # Configuration - will be set based on config file and debug mode
 SOUNDCARD_TIMEOUT = 15 * 60  # 15 minutes in seconds (normal mode)
@@ -33,8 +33,10 @@ GPIO_DELAY = 1.0  # 1 second delay between GPIO operations
 GPIO_ERROR_LED = 26  # GPIO pin for error LED
 GPIO_POWER_SUPPLY = 13  # GPIO pin for power supply control
 STATUS_FILE = "/var/run/MultiChannelAmpDaemon.status"
+STATUS_JSON_FILE = "/var/run/MultiChannelAmpDaemon.status.json"
 PID_FILE = "/var/run/MultiChannelAmpDaemon.pid"
 SOCKET_PATH = "/var/run/MultiChannelAmpDaemon.sock"
+STATUS_UPDATE_INTERVAL = 5  # Update status file every 5 seconds
 DEBUG_MODE = False  # Will be set by command line argument
 
 # Logging setup
@@ -130,13 +132,6 @@ class SoundcardController:
             logger.error(f"GPIO initialization failed for {self.config.name}: {e}")
             # Propagate error to daemon
             raise
-
-    def isActivePlayer(self, playerName: str) -> bool:
-        """Checks whether player is already active"""
-        if playerName in self.activePlayers:
-            return True
-        else:
-            return False
 
     def activatePlayer(self, playerName: str):
         """Marks a player as active"""
@@ -340,7 +335,9 @@ class AmpControlDaemon:
 
         self.running = False
         self.errorLedInitialized = False
+        self.errorLedActive = False
         self.socketServer = None
+        self.statusUpdateTimer = None
         self.setupErrorLed()
         self.setupSoundcards()
 
@@ -352,6 +349,7 @@ class AmpControlDaemon:
             GPIO.setup(GPIO_ERROR_LED, GPIO.OUT)
             GPIO.output(GPIO_ERROR_LED, GPIO.LOW)  # Start with error LED off
             self.errorLedInitialized = True
+            self.errorLedActive = False
             logger.info(f"Error LED initialized on GPIO {GPIO_ERROR_LED}")
         except Exception as e:
             logger.error(f"Error LED initialization failed: {e}")
@@ -375,6 +373,7 @@ class AmpControlDaemon:
             if self.errorLedInitialized:
                 try:
                     GPIO.output(GPIO_ERROR_LED, GPIO.HIGH)
+                    self.errorLedActive = True
                     logger.info(f"Error LED activated on GPIO {GPIO_ERROR_LED}")
                 except Exception as e:
                     logger.error(f"Failed to activate error LED: {e}")
@@ -487,12 +486,12 @@ class AmpControlDaemon:
 
                 # Activate sound card
                 soundcard.activatePlayer(playerName)
-            elif soundcard.isActivePlayer(playerName):
+            else:
                 logger.info(f"Player {playerName} stopping playback")
                 soundcard.deactivatePlayer(playerName)
 
                 # Check if power supply can be deactivated
-                # self.checkPowerSupplyDeactivation()
+                self.checkPowerSupplyDeactivation()
         except Exception as e:
             self.handleError(f"Error handling player event for {playerName}", e)
 
@@ -509,6 +508,72 @@ class AmpControlDaemon:
             self.powerSupply.scheduleDeactivation()
         else:
             logger.info("Power supply deactivation not needed")
+
+    def getStatus(self) -> Dict:
+        """Get current system status"""
+        status = {
+            'timestamp': time.time(),
+            'power_supply': {
+                'state': 'on' if self.powerSupply.isActive() else 'off',
+                'active': self.powerSupply.isActive()
+            },
+            'error_led': {
+                'state': 'on' if self.errorLedActive else 'off',
+                'active': self.errorLedActive
+            },
+            'soundcards': {}
+        }
+
+        for scId, sc in self.soundcards.items():
+            # Determine state based on GPIO and active players
+            if len(sc.activePlayers) > 0:
+                state = 'on'
+            elif sc.isActive():
+                state = 'muted'  # Active but no players
+            else:
+                state = 'suspended'
+
+            status['soundcards'][scId] = {
+                'id': scId,
+                'name': sc.config.name,
+                'state': state,
+                'active': sc.isActive(),
+                'active_players': list(sc.activePlayers),
+                'player_count': len(sc.activePlayers)
+            }
+
+        return status
+
+    def writeStatusFile(self):
+        """Write current status to JSON file"""
+        try:
+            import json
+            status = self.getStatus()
+
+            # Write atomically (write to temp file, then rename)
+            tempFile = STATUS_JSON_FILE + '.tmp'
+            with open(tempFile, 'w') as f:
+                json.dump(status, f, indent=2)
+
+            # Atomic rename
+            os.rename(tempFile, STATUS_JSON_FILE)
+
+            logger.debug(f"Status file updated: {STATUS_JSON_FILE}")
+
+        except Exception as e:
+            logger.error(f"Failed to write status file: {e}")
+
+    def scheduleStatusUpdate(self):
+        """Schedule periodic status file updates"""
+        if not self.running:
+            return
+
+        self.writeStatusFile()
+
+        # Schedule next update
+        self.statusUpdateTimer = threading.Timer(STATUS_UPDATE_INTERVAL, self.scheduleStatusUpdate)
+        self.statusUpdateTimer.daemon = True
+        self.statusUpdateTimer.start()
 
     def startSocketServer(self):
         """Starts Unix socket server for receiving events"""
@@ -607,6 +672,9 @@ class AmpControlDaemon:
             self.handleError("Socket server startup failed", e)
             sys.exit(1)
 
+        # Start status file updates
+        self.scheduleStatusUpdate()
+
         # Main loop
         try:
             while self.running:
@@ -624,14 +692,22 @@ class AmpControlDaemon:
         self.running = False
         logger.info("Multi-Channel Amp Daemon shutting down")
 
+        # Stop status updates
+        if self.statusUpdateTimer:
+            self.statusUpdateTimer.cancel()
+
         # Turn on error LED during shutdown
         if self.errorLedInitialized:
             try:
                 import RPi.GPIO as GPIO
                 GPIO.output(GPIO_ERROR_LED, GPIO.HIGH)
+                self.errorLedActive = True
                 logger.info("Error LED activated during shutdown")
             except Exception as e:
                 logger.error(f"Failed to activate error LED during shutdown: {e}")
+
+        # Write final status
+        self.writeStatusFile()
 
         # Close socket server
         if self.socketServer:
@@ -650,6 +726,12 @@ class AmpControlDaemon:
         # Cleanup PID file
         try:
             Path(PID_FILE).unlink()
+        except:
+            pass
+
+        # Cleanup JSON status file
+        try:
+            Path(STATUS_JSON_FILE).unlink()
         except:
             pass
 
