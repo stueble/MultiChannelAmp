@@ -36,7 +36,7 @@ STATUS_FILE = "/var/run/MultiChannelAmpDaemon.status"
 STATUS_JSON_FILE = "/var/run/MultiChannelAmpDaemon.status.json"
 PID_FILE = "/var/run/MultiChannelAmpDaemon.pid"
 SOCKET_PATH = "/var/run/MultiChannelAmpDaemon.sock"
-STATUS_UPDATE_INTERVAL = 5  # Update status file every 5 seconds
+STATUS_UPDATE_INTERVAL = 30  # Update status file every 5 seconds
 DEBUG_MODE = False  # Will be set by command line argument
 
 # Logging setup
