@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import json
+from pathlib import Path
 
 # Adapt path if neccessary
 duty_path = "/sys/class/pwm/pwmchip0/pwm2/duty_cycle"
