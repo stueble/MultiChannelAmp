@@ -5,6 +5,7 @@
 global:
   # Timeouts in seconds
   soundcard_timeout: 900  # 15 minutes
+  soundcard_mute_delay: 5  # 5 seconds delay between mute and suspend
   power_supply_timeout: 1800  # 30 minutes
   gpio_delay: 1.0  # Delay between GPIO operations
 
@@ -17,9 +18,10 @@ global:
   pid_file: /var/run/MultiChannelAmpDaemon.pid
   status_file: /var/run/MultiChannelAmpDaemon.status
   log_file: /var/log/MultiChannelAmpDaemon.log
+  config_file: /etc/MultiChannelAmpDaemon.yaml
 
   # Logging
-  log_level: DEBUG  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 # Squeezelite settings
 squeezelite:
@@ -49,6 +51,10 @@ soundcards:
     # ALSA/USB device info
     alsa_card: "4"
     usb_device: "1-2"
+
+    # 1-wire temperature sensor (optional)
+    # Format: 28-xxxxxxxxxxxx (DS18B20 sensor ID)
+    temp_sensor: "28-00000050cf0c"
 
     # GPIO configuration
     gpio:
@@ -84,6 +90,10 @@ soundcards:
 
     alsa_card: "3"
     usb_device: "3-1"
+
+    # 1-wire temperature sensor (optional)
+    # Format: 28-xxxxxxxxxxxx (DS18B20 sensor ID)
+    temp_sensor: "28-0000005152b4"
 
     gpio:
       suspend: 6
@@ -127,6 +137,10 @@ soundcards:
 
     alsa_card: "0"
     usb_device: "1-1"
+
+    # 1-wire temperature sensor (optional)
+    # Format: 28-xxxxxxxxxxxx (DS18B20 sensor ID)
+    temp_sensor: "28-000000515cf7"
 
     gpio:
       suspend: 23
