@@ -12,7 +12,18 @@ def escape_string(value):
     return str(value).replace('"', '\\"')
 
 def main():
-    data = json.load(sys.stdin)
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <amp_status.json>")
+        sys.exit(1)
+
+    json_file = Path(sys.argv[1])
+
+    if not json_file.exists():
+        print(f"File not found: {json_file}")
+        sys.exit(2)
+
+    with json_file.open() as f:
+        data = json.load(f)
 
     # InfluxDB expects timestamps in nanoseconds
     timestamp_ns = int(float(data["timestamp"]) * 1_000_000_000)
