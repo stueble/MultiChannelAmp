@@ -71,7 +71,7 @@ def main():
         percent = round((duty / 40000) * 100, 1)
 
         # Output telegraf line protocol
-        print(f"amp_status,type=pwm,device=case-fan value={percent}")
+        print(f"amp_status,type=case-fan value={percent}")
 
 if __name__ == "__main__":
     main()
