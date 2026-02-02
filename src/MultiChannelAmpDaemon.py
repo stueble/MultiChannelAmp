@@ -3,7 +3,7 @@
 Multi-Channel Amplifier Control Daemon
 Controls power supply and sound cards based on Squeezelite activity
 
-Version: 1.0.2
+Version: 1.1.0
 """
 
 import sys
@@ -16,18 +16,19 @@ import os
 import argparse
 import yaml
 from pathlib import Path
-from typing import Dict, Set
+from typing import Dict, Set, Optional
 from dataclasses import dataclass
 from enum import Enum
 
 # Version
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 
 # Configuration paths
 DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
 
 # Configuration - will be set based on config file and debug mode
 SOUNDCARD_TIMEOUT = 15 * 60  # 15 minutes in seconds (normal mode)
+SOUNDCARD_MUTE_DELAY = 5  # 5 seconds delay between mute and suspend
 POWER_SUPPLY_TIMEOUT = 30 * 60  # 30 minutes in seconds (normal mode)
 GPIO_DELAY = 1.0  # 1 second delay between GPIO operations
 GPIO_ERROR_LED = 26  # GPIO pin for error LED
@@ -36,7 +37,7 @@ STATUS_FILE = "/var/run/MultiChannelAmpDaemon.status"
 STATUS_JSON_FILE = "/var/run/MultiChannelAmpDaemon.status.json"
 PID_FILE = "/var/run/MultiChannelAmpDaemon.pid"
 SOCKET_PATH = "/var/run/MultiChannelAmpDaemon.sock"
-STATUS_UPDATE_INTERVAL = 30  # Update status file every 5 seconds
+STATUS_UPDATE_INTERVAL = 30  # Update status file every 30 seconds
 DEBUG_MODE = False  # Will be set by command line argument
 
 # Logging setup
@@ -67,6 +68,7 @@ class SoundcardConfig:
     gpioLed: int      # GPIO pin for status LED
     alsaCard: str     # ALSA card number
     usbDevice: str    # USB device path
+    tempSensor: Optional[str]  # 1-wire temperature sensor ID (e.g., "28-0000...")
     players: Set[str]
 
 
@@ -188,7 +190,7 @@ class SoundcardController:
             logger.error(f"Exception activating {self.config.name}: {e}")
 
     def deactivate(self):
-        """Deactivates the sound card via GPIO sequence"""
+        """Deactivates the sound card via GPIO sequence with delay between mute and suspend"""
         with self.lock:
             # Double-check no players became active during timeout
             if len(self.activePlayers) > 0:
@@ -206,12 +208,23 @@ class SoundcardController:
                 GPIO.output(self.config.gpioMute, GPIO.HIGH)
                 logger.debug(f"{self.config.name}: MUTE set to HIGH")
 
-                # Wait for specified delay
-                time.sleep(GPIO_DELAY)
+                # Wait for mute-to-suspend delay (configurable)
+                logger.debug(f"{self.config.name}: Waiting {SOUNDCARD_MUTE_DELAY}s before suspend")
+                time.sleep(SOUNDCARD_MUTE_DELAY)
+
+                # Check again if players became active during delay
+                if len(self.activePlayers) > 0:
+                    logger.info(f"Deactivation of {self.config.name} cancelled during mute delay")
+                    # Unmute again
+                    GPIO.output(self.config.gpioMute, GPIO.LOW)
+                    return
 
                 # Step 2: Set SUSPEND to 1 (suspended)
                 GPIO.output(self.config.gpioSuspend, GPIO.HIGH)
                 logger.debug(f"{self.config.name}: SUSPEND set to HIGH")
+
+                # Wait for GPIO delay
+                time.sleep(GPIO_DELAY)
 
                 # Step 3: Turn off status LED
                 GPIO.output(self.config.gpioLed, GPIO.LOW)
@@ -413,14 +426,15 @@ class AmpControlDaemon:
         config = loadConfiguration(self.configPath)
 
         # Update global timeouts if not in debug mode
-        global SOUNDCARD_TIMEOUT, POWER_SUPPLY_TIMEOUT, GPIO_DELAY
+        global SOUNDCARD_TIMEOUT, POWER_SUPPLY_TIMEOUT, GPIO_DELAY, SOUNDCARD_MUTE_DELAY
         if not DEBUG_MODE:
             globalConfig = config.get('global', {})
             SOUNDCARD_TIMEOUT = globalConfig.get('soundcard_timeout', SOUNDCARD_TIMEOUT)
             POWER_SUPPLY_TIMEOUT = globalConfig.get('power_supply_timeout', POWER_SUPPLY_TIMEOUT)
             GPIO_DELAY = globalConfig.get('gpio_delay', GPIO_DELAY)
+            SOUNDCARD_MUTE_DELAY = globalConfig.get('soundcard_mute_delay', SOUNDCARD_MUTE_DELAY)
 
-            logger.info(f"Timeouts from config: Soundcard={SOUNDCARD_TIMEOUT}s, PowerSupply={POWER_SUPPLY_TIMEOUT}s")
+            logger.info(f"Timeouts from config: Soundcard={SOUNDCARD_TIMEOUT}s, PowerSupply={POWER_SUPPLY_TIMEOUT}s, MuteDelay={SOUNDCARD_MUTE_DELAY}s")
 
         # Parse soundcard configurations
         soundcardsConfig = config.get('soundcards', [])
@@ -446,6 +460,7 @@ class AmpControlDaemon:
                     gpioLed=gpio['led'],
                     alsaCard=scConfig['alsa_card'],
                     usbDevice=scConfig['usb_device'],
+                    tempSensor=scConfig.get('temp_sensor'),  # Optional 1-wire sensor
                     players=players
                 )
 
@@ -509,6 +524,48 @@ class AmpControlDaemon:
         else:
             logger.info("Power supply deactivation not needed")
 
+    def readTemperature(self, sensorId: str) -> Optional[float]:
+        """
+        Read temperature from 1-wire sensor
+
+        Args:
+            sensorId: 1-wire sensor ID (e.g., "28-00000abcdef0")
+
+        Returns:
+            Temperature in Celsius or None if error
+        """
+        if not sensorId:
+            return None
+
+        sensorPath = f"/sys/bus/w1/devices/{sensorId}/w1_slave"
+
+        try:
+            with open(sensorPath, 'r') as f:
+                lines = f.readlines()
+
+            # Check if reading is valid (CRC OK)
+            if len(lines) < 2 or 'YES' not in lines[0]:
+                logger.warning(f"Temperature sensor {sensorId}: CRC check failed")
+                return None
+
+            # Extract temperature value
+            # Format: "... t=23625" means 23.625°C
+            tempPos = lines[1].find('t=')
+            if tempPos != -1:
+                tempStr = lines[1][tempPos + 2:].strip()
+                tempC = float(tempStr) / 1000.0
+                return tempC
+            else:
+                logger.warning(f"Temperature sensor {sensorId}: Could not parse temperature")
+                return None
+
+        except FileNotFoundError:
+            logger.warning(f"Temperature sensor {sensorId} not found at {sensorPath}")
+            return None
+        except Exception as e:
+            logger.error(f"Error reading temperature sensor {sensorId}: {e}")
+            return None
+
     def getStatus(self) -> Dict:
         """Get current system status"""
         status = {
@@ -533,13 +590,20 @@ class AmpControlDaemon:
             else:
                 state = 'suspended'
 
+            # Read temperature if sensor configured
+            temperature = None
+            if sc.config.tempSensor:
+                temperature = self.readTemperature(sc.config.tempSensor)
+
             status['soundcards'][scId] = {
                 'id': scId,
                 'name': sc.config.name,
                 'state': state,
                 'active': sc.isActive(),
                 'active_players': list(sc.activePlayers),
-                'player_count': len(sc.activePlayers)
+                'player_count': len(sc.activePlayers),
+                'temperature': temperature,
+                'temp_sensor': sc.config.tempSensor
             }
 
         return status
