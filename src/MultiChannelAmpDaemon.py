@@ -24,7 +24,7 @@ from enum import Enum
 VERSION = "1.0.2"
 
 # Configuration paths
-DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon/MultiChannelAmpDaemon.yaml"
+DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
 
 # Configuration - will be set based on config file and debug mode
 SOUNDCARD_TIMEOUT = 15 * 60  # 15 minutes in seconds (normal mode)
