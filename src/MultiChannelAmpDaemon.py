@@ -3,7 +3,7 @@
 Multi-Channel Amplifier Control Daemon
 Controls power supply and sound cards based on Squeezelite activity
 
-Version: 1.1.1
+Version: 1.2.0
 """
 
 import sys
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 # Version
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 
 # Configuration paths
 DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
@@ -575,7 +575,8 @@ class AmpControlDaemon:
                 return None
 
             # Extract temperature value
-            # Format: "... t=23625" means 23.625°C
+            # Format: "... t=23625" means 23.625°Camp_status,type=soundcard,soundcard_id=1,soundcard_name=KAB9_1 state="on",active=true,player_count=2,active_players="tvzimmer,kueche",temperature=37.0 1770248280817668352
+
             tempPos = lines[1].find('t=')
             if tempPos != -1:
                 tempStr = lines[1][tempPos + 2:].strip()
@@ -604,7 +605,8 @@ class AmpControlDaemon:
                 'state': 'on' if self.errorLedActive else 'off',
                 'active': self.errorLedActive
             },
-            'soundcards': {}
+            'soundcards': {},
+            'players': {}
         }
 
         for scId, sc in self.soundcards.items():
@@ -631,6 +633,16 @@ class AmpControlDaemon:
                 'temperature': temperature,
                 'temp_sensor': sc.config.tempSensor
             }
+
+            # Add all players for this soundcard to players section
+            for playerName in sc.config.players:
+                isActive = playerName in sc.activePlayers
+                status['players'][playerName] = {
+                    'name': playerName,
+                    'active': isActive,
+                    'soundcard_id': scId,
+                    'soundcard_name': sc.config.name
+                }
 
         return status
 
