@@ -1,6 +1,6 @@
 # Hardware components used to build the MultiChannelAmp
 
-| Count | Component | Notes |
+| Quantity | Component | Notes |
 |---|---|---|
 | 1 | 19" Rack Mount Case | |
 | 1 | Raspberry Pi5 | I decided to use a Pi5 to prevent any issues with USB, CPU or networking performance. |
@@ -12,6 +12,7 @@
 | 1 | Hailege PC817 8 Channel Optokoppler Module | Resistors are too high for 3,3V of the GPIOs. I removed both, SMD LED and SMD resistor and connected a LED for the case in combination with another resistor |
 | 24 | KF2EDGWB | 4-Pin connector named KF2EDGWB at aliexpress |
 | x | Misc | LEDs, cable, connectors | 
+
 
 
 
