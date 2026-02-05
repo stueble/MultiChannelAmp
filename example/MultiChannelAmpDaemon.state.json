@@ -1,0 +1,125 @@
+{
+  "timestamp": 1770249833.7457376,
+  "power_supply": {
+    "state": "on",
+    "active": true
+  },
+  "error_led": {
+    "state": "off",
+    "active": false
+  },
+  "soundcards": {
+    "1": {
+      "id": 1,
+      "name": "KAB9_1",
+      "state": "on",
+      "active": true,
+      "active_players": [
+        "kueche"
+      ],
+      "player_count": 1,
+      "temperature": 37.187,
+      "temp_sensor": "28-00000050cf0c"
+    },
+    "2": {
+      "id": 2,
+      "name": "KAB9_2",
+      "state": "suspended",
+      "active": false,
+      "active_players": [],
+      "player_count": 0,
+      "temperature": 25.562,
+      "temp_sensor": "28-0000005152b4"
+    },
+    "3": {
+      "id": 3,
+      "name": "KAB9_3",
+      "state": "suspended",
+      "active": false,
+      "active_players": [],
+      "player_count": 0,
+      "temperature": 25.375,
+      "temp_sensor": "28-000000515cf7"
+    }
+  },
+  "players": {
+    "wohnzimmer": {
+      "name": "wohnzimmer",
+      "active": false,
+      "soundcard_id": 1,
+      "soundcard_name": "KAB9_1"
+    },
+    "tvzimmer": {
+      "name": "tvzimmer",
+      "active": false,
+      "soundcard_id": 1,
+      "soundcard_name": "KAB9_1"
+    },
+    "kueche": {
+      "name": "kueche",
+      "active": true,
+      "soundcard_id": 1,
+      "soundcard_name": "KAB9_1"
+    },
+    "gaestezimmer": {
+      "name": "gaestezimmer",
+      "active": false,
+      "soundcard_id": 1,
+      "soundcard_name": "KAB9_1"
+    },
+    "sauna": {
+      "name": "sauna",
+      "active": false,
+      "soundcard_id": 2,
+      "soundcard_name": "KAB9_2"
+    },
+    "balkon": {
+      "name": "balkon",
+      "active": false,
+      "soundcard_id": 2,
+      "soundcard_name": "KAB9_2"
+    },
+    "terrasse": {
+      "name": "terrasse",
+      "active": false,
+      "soundcard_id": 2,
+      "soundcard_name": "KAB9_2"
+    },
+    "elternbad": {
+      "name": "elternbad",
+      "active": false,
+      "soundcard_id": 2,
+      "soundcard_name": "KAB9_2"
+    },
+    "gwc": {
+      "name": "gwc",
+      "active": false,
+      "soundcard_id": 2,
+      "soundcard_name": "KAB9_2"
+    },
+    "schlafzimmer": {
+      "name": "schlafzimmer",
+      "active": false,
+      "soundcard_id": 2,
+      "soundcard_name": "KAB9_2"
+    },
+    "hobbyraum": {
+      "name": "hobbyraum",
+      "active": false,
+      "soundcard_id": 3,
+      "soundcard_name": "KAB9_3"
+    },
+    "sarina": {
+      "name": "sarina",
+      "active": false,
+      "soundcard_id": 3,
+      "soundcard_name": "KAB9_3"
+    },
+    "kian": {
+      "name": "kian",
+      "active": false,
+      "soundcard_id": 3,
+      "soundcard_name": "KAB9_3"
+    }
+  }
+}
