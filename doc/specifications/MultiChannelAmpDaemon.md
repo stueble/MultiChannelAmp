@@ -1,6 +1,6 @@
 # Multi-Channel Amplifier Control Daemon - Technical Specification
 
-## Version: 1.1.0
+## Version: 1.2.1
 
 ## Overview
 A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier system with three 8-channel USB sound cards and a main power supply. The daemon monitors Squeezelite instances and manages power states based on playback activity. It exports system status via JSON file for monitoring tools like Telegraf.
@@ -9,13 +9,15 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
 
 ### Hardware Components
 - **Raspberry Pi 5** running the daemon
-- **Main Power Supply** controlled via GPIO 13
-  - GPIO HIGH (1) = Power OFF
-  - GPIO LOW (0) = Power ON
+- **Main Power Supply** controlled via GPIO 13 (configurable)
+  - **INVERTED LOGIC (for safety):**
+  - GPIO LOW (0) = Power OFF
+  - GPIO HIGH (1) = Power ON
+  - Safety feature: Raspberry Pi shutdown/failure automatically turns off power supply
 - **Three 8-channel USB Sound Cards** (KAB9_1, KAB9_2, KAB9_3)
   - Each controlled via 3 GPIO pins: SUSPEND, MUTE, LED
   - Optional: 1-wire temperature sensor per sound card
-- **Error LED** on GPIO 26
+- **Error LED** on GPIO 26 (configurable)
 
 ### Sound Card Configuration
 
@@ -52,27 +54,28 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
 
 1. **Initial State**
    - All sound cards: SUSPENDED (GPIO SUSPEND=HIGH, MUTE=HIGH, LED=LOW)
-   - Power supply: OFF (GPIO=HIGH)
+   - Power supply: OFF (GPIO=LOW, inverted logic)
    - Error LED: OFF (GPIO=LOW)
 
 2. **Player Activation (Squeezelite starts playback)**
-   - Activate main power supply immediately
+   - Activate main power supply immediately (always call activate() to cancel pending timers)
    - Activate associated sound card with sequence:
      1. Set SUSPEND GPIO to LOW
      2. Wait 1 second (GPIO_DELAY)
      3. Set MUTE GPIO to LOW
      4. Set LED GPIO to HIGH
-   - Cancel any pending deactivation timers for power supply
+   - Cancel any pending deactivation timers for that sound card
 
 3. **Player Deactivation (Squeezelite stops playback)**
    - Remove player from active list
    - If no players on that sound card are active:
-     - Schedule sound card deactivation after 15 minutes (SOUNDCARD_TIMEOUT)
+     - **Immediately** set MUTE GPIO to HIGH
+     - Schedule full sound card suspend after 15 minutes (SOUNDCARD_TIMEOUT)
    - Check if power supply can be deactivated
 
 4. **Sound Card Deactivation (after timeout)**
    - Sequence with mute-to-suspend delay:
-     1. Set MUTE GPIO to HIGH
+     1. Verify MUTE GPIO is HIGH (already set by muteImmediately())
      2. Wait SOUNDCARD_MUTE_DELAY seconds (default 5 seconds)
      3. Check if players became active during delay - if yes, abort and unmute
      4. Set SUSPEND GPIO to HIGH
@@ -83,7 +86,7 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
 5. **Power Supply Deactivation**
    - Only if ALL sound cards are inactive
    - Schedule deactivation after 30 minutes (POWER_SUPPLY_TIMEOUT)
-   - Set GPIO to HIGH (OFF)
+   - Set GPIO to LOW (OFF, inverted logic)
 
 ### Timeout Configuration
 
@@ -97,7 +100,7 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
 **Debug Mode (--debug flag):**
 - SOUNDCARD_TIMEOUT: 1 minute (60 seconds)
 - POWER_SUPPLY_TIMEOUT: 2 minutes (120 seconds)
-- SOUNDCARD_MUTE_DELAY: 2 seconds
+- SOUNDCARD_MUTE_DELAY: 5 seconds (unchanged in debug mode)
 - Timeout values displayed in startup banner
 
 ### Configuration File
@@ -201,6 +204,20 @@ soundcards:
       "temperature": 28.5,
       "temp_sensor": "28-00000fedcba9"
     }
+  },
+  "players": {
+    "wohnzimmer": {
+      "name": "wohnzimmer",
+      "active": true,
+      "soundcard_id": 1,
+      "soundcard_name": "KAB9_1"
+    },
+    "schlafzimmer": {
+      "name": "schlafzimmer",
+      "active": false,
+      "soundcard_id": 2,
+      "soundcard_name": "KAB9_2"
+    }
   }
 }
 ```
@@ -228,7 +245,7 @@ When a critical error occurs, execute in this order:
 1. Log critical error message
 2. Turn ON error LED (GPIO 26 = HIGH), set errorLedActive = True
 3. Deactivate all sound cards (force immediate shutdown)
-4. Deactivate power supply (GPIO 13 = HIGH)
+4. Deactivate power supply (GPIO 13 = LOW, inverted logic)
 5. Write final status to JSON file
 
 ### Normal Shutdown
@@ -274,6 +291,14 @@ The power supply activation must ALWAYS be called when a player starts, not only
 - `activate()` must cancel pending timer BEFORE checking if already active
 - This ensures pending shutdown timers are cancelled when new playback starts
 
+### Immediate Mute on Player Deactivation
+When all players on a soundcard become inactive:
+- `muteImmediately()` is called from within the locked context of `deactivatePlayer()`
+- MUTE GPIO is set to HIGH immediately (no delay)
+- This prevents audio pops/clicks when playback stops
+- Full suspend (SUSPEND GPIO HIGH) is delayed by SOUNDCARD_TIMEOUT
+- During the mute-to-suspend delay, playback can resume and unmute the card
+
 ## File Structure
 
 ### Two Python Files
@@ -281,15 +306,15 @@ The power supply activation must ALWAYS be called when a player starts, not only
 #### 1. MultiChannelAmpDaemon.py (Main Daemon)
 **Purpose:** Background daemon that manages power supply and sound card states
 
-**Version:** 1.1.0
+**Version:** 1.2.1
 
 **Key Components:**
-- **Version Constant:** `VERSION = "1.1.0"`
+- **Version Constant:** `VERSION = "1.2.1"`
 - **Configuration Constants:** 
   - SOUNDCARD_TIMEOUT, SOUNDCARD_MUTE_DELAY, POWER_SUPPLY_TIMEOUT
   - GPIO_DELAY, GPIO_ERROR_LED, GPIO_POWER_SUPPLY
   - STATUS_UPDATE_INTERVAL = 30
-  - File paths: STATUS_JSON_FILE, PID_FILE, SOCKET_PATH
+  - File paths: STATUS_JSON_FILE, PID_FILE, SOCKET_PATH, STATUS_FILE
   - DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
 - **Enums:** DeviceState (OFF, ON)
 - **Data Classes:** SoundcardConfig (id, name, gpioSuspend, gpioMute, gpioLed, alsaCard, usbDevice, tempSensor, players)
@@ -304,16 +329,29 @@ The power supply activation must ALWAYS be called when a player starts, not only
   - `main()`: Entry point with argument parsing
 - **Daemon Methods:**
   - `readTemperature(sensorId)`: Read 1-wire DS18B20 sensor
-  - `getStatus()`: Build complete status dictionary
+  - `getStatus()`: Build complete status dictionary including players section
   - `writeStatusFile()`: Write status JSON atomically
   - `scheduleStatusUpdate()`: Periodic status updates every 30s
+  - `handleError()`: Critical error handler that activates error LED and shuts down
+- **SoundcardController Methods:**
+  - `activatePlayer(playerName)`: Adds player to active set, cancels timers, activates card
+  - `deactivatePlayer(playerName)`: Removes player, calls muteImmediately(), schedules suspend
+  - `muteImmediately()`: Sets MUTE HIGH immediately when last player stops
+  - `activate()`: GPIO sequence to activate (SUSPEND LOW → delay → MUTE LOW → LED HIGH)
+  - `deactivate()`: GPIO sequence to suspend with mute-to-suspend delay
+  - `scheduleDeactivation()`: Schedules deactivate() after SOUNDCARD_TIMEOUT
+- **PowerSupplyController Methods:**
+  - `activate()`: Cancels timer FIRST, then sets GPIO HIGH (ON, inverted)
+  - `scheduleDeactivation()`: Schedules deactivate() after POWER_SUPPLY_TIMEOUT
+  - `deactivate()`: Sets GPIO LOW (OFF, inverted) to turn off
+  - `setupGpio()`: Initializes GPIO with LOW (OFF) state for safety
 - **Command-line Interface:**
   - `--debug`: Enable debug mode (1min/2min timeouts, DEBUG logging)
   - `--config`: Path to config file (default: /etc/MultiChannelAmpDaemon.yaml)
   - `--version`: Display version number
 
 **Dependencies:**
-- Standard library: sys, time, threading, logging, signal, socket, os, argparse, yaml
+- Standard library: sys, time, threading, logging, signal, socket, os, argparse, yaml, pathlib, typing, dataclasses, enum
 - Platform-specific: RPi.GPIO (or lgpio for Pi 5)
 
 **Execution:** Runs as background daemon, listens on Unix socket for events
@@ -353,8 +391,8 @@ Contains complete system configuration including:
 ## Code Style Requirements
 
 ### Naming Conventions
-- **Functions and Methods:** camelCase (e.g., `activatePlayer()`, `setupGpio()`, `readTemperature()`)
-- **Variables:** camelCase (e.g., `playerName`, `soundcardId`, `tempSensor`)
+- **Functions and Methods:** camelCase (e.g., `activatePlayer()`, `setupGpio()`, `readTemperature()`, `muteImmediately()`)
+- **Variables:** camelCase (e.g., `playerName`, `soundcardId`, `tempSensor`, `errorLedActive`)
 - **Constants:** UPPER_SNAKE_CASE (e.g., `SOUNDCARD_TIMEOUT`, `GPIO_DELAY`, `STATUS_UPDATE_INTERVAL`)
 - **Classes:** PascalCase (e.g., `SoundcardController`, `AmpControlDaemon`)
 
@@ -377,7 +415,7 @@ Contains complete system configuration including:
 ================================================================================
 =                                                                              =
 =  MULTI-CHANNEL AMP DAEMON STARTING                                          =
-=  Version: 1.1.0                                                             =
+=  Version: 1.2.1                                                             =
 =                                                                              =
 ================================================================================
 ```
@@ -387,16 +425,16 @@ In debug mode, also show timeouts:
 ================================================================================
 =                                                                              =
 =  MULTI-CHANNEL AMP DAEMON STARTING (DEBUG MODE)                             =
-=  Version: 1.1.0                                                             =
+=  Version: 1.2.1                                                             =
 =  Soundcard timeout: 60s, Power supply timeout: 120s                         =
 =                                                                              =
 ================================================================================
 ```
 
 ### Key Log Messages
-- INFO: Player events, state changes, timer scheduling, status file updates
-- DEBUG: GPIO state changes (SUSPEND, MUTE, LED values), temperature readings
-- WARNING: Unknown players, temperature sensor failures
+- INFO: Player events, state changes, timer scheduling, status file updates, timer cancellations
+- DEBUG: GPIO state changes (SUSPEND, MUTE, LED values), temperature readings, mute delay waits
+- WARNING: Unknown players, temperature sensor failures, stale PID files
 - ERROR: GPIO failures, socket errors, status file write errors
 - CRITICAL: Fatal errors triggering emergency shutdown
 
@@ -476,26 +514,33 @@ cat /sys/bus/w1/devices/28-00000abcdef0/w1_slave
 ## Expected Behavior Examples
 
 ### Example 1: Single Player Session with Temperature Monitoring
-1. Daemon starts, all OFF, reads temperatures (if configured)
-2. Player "wohnzimmer" starts playback → Power ON, KAB9_1 activates
+1. Daemon starts, all OFF, power supply GPIO=LOW (OFF, inverted), reads temperatures (if configured)
+2. Player "wohnzimmer" starts playback → Power GPIO=HIGH (ON, inverted), KAB9_1 activates
 3. Temperature monitored every 30 seconds → 45.3°C recorded in status
-4. Player "wohnzimmer" stops → KAB9_1 schedules deactivation (15 min)
-5. After 15 min → KAB9_1 mutes, waits 5s, then suspends
+4. Player "wohnzimmer" stops → KAB9_1 **mutes immediately**, schedules suspend (15 min)
+5. After 15 min → KAB9_1 waits 5s mute delay, then suspends (SUSPEND HIGH, LED LOW)
 6. Power supply schedules deactivation (30 min)
-7. After 30 min → Power supply turns OFF
+7. After 30 min → Power supply GPIO=LOW (OFF, inverted)
 
 ### Example 2: Mute Delay Interruption
-1. Player stops → Soundcard mute timer starts (15 min)
-2. After 15 min → MUTE goes HIGH
+1. Player stops → Soundcard **muted immediately**, suspend timer starts (15 min)
+2. After 15 min → Suspend starts, waits 5s mute delay
 3. During 5s mute delay → Player starts again
-4. Deactivation cancelled, MUTE goes LOW again
+4. Suspend cancelled, MUTE goes LOW again, LED stays HIGH
 5. Playback continues normally
 
-### Example 3: Status File Monitoring
+### Example 3: Status File Monitoring with Players Section
 1. External tool reads `/var/run/MultiChannelAmpDaemon.status.json`
 2. Sees KAB9_1 state: "on", temperature: 45.3°C, 2 active players
-3. Telegraf ingests this every 30 seconds
-4. Grafana displays temperature trends and player activity
+3. Sees players section with individual player status for all configured players
+4. Telegraf ingests this every 30 seconds
+5. Grafana displays temperature trends and player activity
+
+### Example 4: Power Supply Timer Cancellation
+1. Player stops → Power supply schedules shutdown (30 min)
+2. After 25 minutes → Another player starts
+3. Power supply activation called → **pending timer cancelled**
+4. Power stays ON, no restart needed (already active)
 
 ## Security Considerations
 
@@ -521,8 +566,8 @@ cat /sys/bus/w1/devices/28-00000abcdef0/w1_slave
 8. **Alert System:** Temperature threshold alerts
 
 ### Version Management
-- Current: 1.1.0
-- Increment PATCH (1.1.x) for bug fixes
+- Current: 1.2.1
+- Increment PATCH (1.2.x) for bug fixes
 - Increment MINOR (1.x.0) for new features (backward compatible)
 - Increment MAJOR (x.0.0) for breaking changes
 - Update VERSION constant, docstring, and startup banner
@@ -534,7 +579,7 @@ cat /sys/bus/w1/devices/28-00000abcdef0/w1_slave
 Use `--debug` flag for faster testing:
 - 1-minute sound card timeout instead of 15 minutes
 - 2-minute power supply timeout instead of 30 minutes
-- 2-second mute delay instead of 5 seconds
+- SOUNDCARD_MUTE_DELAY remains 5 seconds (unchanged)
 - DEBUG level logging for detailed GPIO and temperature information
 - Timeout values displayed in startup banner
 
@@ -547,12 +592,66 @@ sudo /usr/local/bin/MultiChannelAmpDaemon.py --debug
 echo "wohnzimmer:1" | nc -U /var/run/MultiChannelAmpDaemon.sock
 echo "wohnzimmer:0" | nc -U /var/run/MultiChannelAmpDaemon.sock
 
-# Monitor status file
+# Monitor status file (including players section)
 watch -n 1 'jq "." /var/run/MultiChannelAmpDaemon.status.json'
 
 # Check temperatures
 jq '.soundcards[] | {name, temperature}' /var/run/MultiChannelAmpDaemon.status.json
 
-# Monitor logs
-tail -f /var/log/MultiChannelAmpDaemon.log
+# Check individual player status
+jq '.players' /var/run/MultiChannelAmpDaemon.status.json
+
+# Monitor logs for immediate mute
+tail -f /var/log/MultiChannelAmpDaemon.log | grep -E "(Muting|MUTE)"
 ```
+
+## Changes from Version 1.1.0 to 1.2.0
+
+### Major Changes
+1. **Immediate Mute on Stop:** When a player stops, MUTE is now set HIGH immediately (in `muteImmediately()`), not after SOUNDCARD_TIMEOUT
+2. **Players Section in Status:** Added dedicated `players` section in JSON status with individual player status
+3. **Enhanced Error Handling:** `handleError()` method properly activates error LED and performs emergency shutdown
+4. **Improved Timer Cancellation:** Power supply `activate()` always cancels pending timers first
+5. **Configuration Loading:** GPIO pins now configurable via YAML (gpio_power_supply, gpio_error_led)
+
+### Implementation Details
+- `deactivatePlayer()` now calls `muteImmediately()` when last player stops
+- `deactivate()` verifies MUTE is already HIGH before mute delay
+- `getStatus()` builds players section from all configured soundcard players
+- Error LED state tracked with `errorLedActive` boolean flag
+- Enhanced logging for mute operations and timer cancellations
+
+### Backward Compatibility
+- Configuration file format unchanged
+- Socket protocol unchanged
+- Status file adds new `players` section (additive change)
+- All existing monitoring tools continue to work
+
+## Changes from Version 1.2.0 to 1.2.1
+
+### Safety Enhancement
+1. **Inverted Power Supply Logic:** Power supply GPIO control inverted for safety
+   - **Before (1.2.0):** GPIO HIGH = OFF, GPIO LOW = ON
+   - **After (1.2.1):** GPIO LOW = OFF, GPIO HIGH = ON
+   - **Reason:** If Raspberry Pi crashes, shuts down, or loses power, GPIO pins default to LOW, automatically turning OFF the power supply
+   - This prevents the amplifier power supply from staying on indefinitely in case of system failure
+
+### Implementation Details
+- `PowerSupplyController.setupGpio()`: Initializes GPIO to LOW (OFF)
+- `PowerSupplyController.activate()`: Sets GPIO to HIGH (ON)
+- `PowerSupplyController.deactivate()`: Sets GPIO to LOW (OFF)
+- `handleError()`: Emergency shutdown sets GPIO to LOW (OFF)
+- Updated all log messages to reflect inverted logic
+- Class docstring updated: "Controls the main power supply via GPIO (inverted logic for safety)"
+
+### Hardware Impact
+- **BREAKING CHANGE:** External circuit must be inverted to match new logic
+- Requires hardware modification: relay or transistor circuit must respond to HIGH=ON instead of LOW=ON
+- Significantly improves system safety in case of Raspberry Pi failure
+
+### Backward Compatibility
+- **NOT backward compatible** with hardware designed for v1.2.0
+- Configuration file format unchanged
+- Socket protocol unchanged
+- Status file format unchanged
+- Monitoring tools unaffected

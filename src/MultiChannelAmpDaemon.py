@@ -3,7 +3,7 @@
 Multi-Channel Amplifier Control Daemon
 Controls power supply and sound cards based on Squeezelite activity
 
-Version: 1.2.0
+Version: 1.2.1
 """
 
 import sys
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 # Version
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 # Configuration paths
 DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
@@ -283,7 +283,7 @@ class SoundcardController:
 
 
 class PowerSupplyController:
-    """Controls the main power supply via GPIO"""
+    """Controls the main power supply via GPIO (inverted logic for safety)"""
 
     def __init__(self, gpioPin: int = GPIO_POWER_SUPPLY):
         self.gpioPin = gpioPin
@@ -293,18 +293,18 @@ class PowerSupplyController:
         self.setupGpio()
 
     def setupGpio(self):
-        """Initializes GPIO for power supply control"""
+        """Initializes GPIO for power supply control (inverted logic)"""
         try:
             import RPi.GPIO as GPIO
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.gpioPin, GPIO.OUT)
-            GPIO.output(self.gpioPin, GPIO.HIGH)  # Start with power OFF (GPIO=1)
-            logger.info(f"GPIO pin {self.gpioPin} initialized for power supply (HIGH=OFF, LOW=ON)")
+            GPIO.output(self.gpioPin, GPIO.LOW)  # Start with power OFF (GPIO=0, inverted)
+            logger.info(f"GPIO pin {self.gpioPin} initialized for power supply (LOW=OFF, HIGH=ON, inverted for safety)")
         except Exception as e:
             logger.error(f"GPIO initialization failed: {e}")
 
     def activate(self):
-        """Activates the power supply (GPIO=0)"""
+        """Activates the power supply (GPIO=1, inverted logic)"""
         with self.lock:
             # Always cancel pending deactivation timer, even if already active
             if self.timer:
@@ -319,9 +319,9 @@ class PowerSupplyController:
             logger.info("Activating main power supply")
             try:
                 import RPi.GPIO as GPIO
-                GPIO.output(self.gpioPin, GPIO.LOW)  # LOW = ON
+                GPIO.output(self.gpioPin, GPIO.HIGH)  # HIGH = ON (inverted)
                 self.state = DeviceState.ON
-                logger.info("Main power supply activated (GPIO=LOW)")
+                logger.info("Main power supply activated (GPIO=HIGH, inverted)")
             except Exception as e:
                 logger.error(f"Error activating power supply: {e}")
 
@@ -337,7 +337,7 @@ class PowerSupplyController:
             self.timer.start()
 
     def deactivate(self):
-        """Deactivates the power supply (GPIO=1)"""
+        """Deactivates the power supply (GPIO=0, inverted logic)"""
         with self.lock:
             if self.state == DeviceState.OFF:
                 return
@@ -345,9 +345,9 @@ class PowerSupplyController:
             logger.info("Deactivating main power supply")
             try:
                 import RPi.GPIO as GPIO
-                GPIO.output(self.gpioPin, GPIO.HIGH)  # HIGH = OFF
+                GPIO.output(self.gpioPin, GPIO.LOW)  # LOW = OFF (inverted)
                 self.state = DeviceState.OFF
-                logger.info("Main power supply deactivated (GPIO=HIGH)")
+                logger.info("Main power supply deactivated (GPIO=LOW, inverted)")
             except Exception as e:
                 logger.error(f"Error deactivating power supply: {e}")
 
@@ -436,7 +436,7 @@ class AmpControlDaemon:
             logger.info("Emergency shutdown: Deactivating power supply")
             try:
                 if self.powerSupply.state == DeviceState.ON:
-                    GPIO.output(self.powerSupply.gpioPin, GPIO.HIGH)  # HIGH = OFF
+                    GPIO.output(self.powerSupply.gpioPin, GPIO.LOW)  # LOW = OFF (inverted)
                     self.powerSupply.state = DeviceState.OFF
                     logger.info("Emergency shutdown: Power supply deactivated")
             except Exception as e:
@@ -575,7 +575,7 @@ class AmpControlDaemon:
                 return None
 
             # Extract temperature value
-            # Format: "... t=23625" means 23.625°Camp_status,type=soundcard,soundcard_id=1,soundcard_name=KAB9_1 state="on",active=true,player_count=2,active_players="tvzimmer,kueche",temperature=37.0 1770248280817668352
+            # Format: "... t=23625" means 23.625Â°Camp_status,type=soundcard,soundcard_id=1,soundcard_name=KAB9_1 state="on",active=true,player_count=2,active_players="tvzimmer,kueche",temperature=37.0 1770248280817668352
 
             tempPos = lines[1].find('t=')
             if tempPos != -1:

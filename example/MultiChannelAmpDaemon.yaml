@@ -1,5 +1,5 @@
 # Multi-Channel Amplifier Control Configuration
-# Version: 1.0.0
+# Version: 1.2.1
 
 # Global settings
 global:
@@ -75,12 +75,12 @@ soundcards:
         mac_address: "aa:bb:cc:dd:ee:02"
 
       - name: kueche
-        description: "Küche"
+        description: "KÃ¼che"
         alsa_device: "kueche"
         mac_address: "aa:bb:cc:dd:ee:03"
 
       - name: gaestezimmer
-        description: "Gästezimmer"
+        description: "GÃ¤stezimmer"
         alsa_device: "gaestezimmer"
         mac_address: "aa:bb:cc:dd:ee:04"
 
@@ -112,7 +112,7 @@ soundcards:
         mac_address: "aa:bb:cc:dd:ee:06"
 
       - name: gwc
-        description: "Gäste WC"
+        description: "GÃ¤ste WC"
         alsa_device: "gwc"
         mac_address: "aa:bb:cc:dd:ee:07"
 
