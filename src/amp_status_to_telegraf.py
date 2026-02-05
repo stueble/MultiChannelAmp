@@ -69,6 +69,7 @@ def main():
         print(
             f'amp_status,'
             f'type=player,'
+            f'name={escape_string(player.get("name","unknown"))},'
             f'soundcard_id={player.get("soundcard_id")},'
             f'soundcard_name={escape_string(player.get("soundcard_name", ""))} '
             f'active={bool_to_lp(player.get("active", False))} '
