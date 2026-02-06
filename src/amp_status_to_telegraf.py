@@ -12,6 +12,9 @@ def bool_to_lp(value):
 def escape_string(value):
     return str(value).replace('"', '\\"')
 
+def escape_tag(value):
+    return str(value).replace(' ', '\\ ')
+
 def main():
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} <amp_status.json>")
@@ -69,9 +72,9 @@ def main():
         print(
             f'amp_status,'
             f'type=player,'
-            f'name={escape_string(player.get("name","unknown"))},'
+            f'name={escape_tag(player.get("name","unknown"))},'
             f'soundcard_id={player.get("soundcard_id")},'
-            f'soundcard_name={escape_string(player.get("soundcard_name", ""))} '
+            f'soundcard_name={escape_tag(player.get("soundcard_name", ""))} '
             f'active={bool_to_lp(player.get("active", False))} '
             f'{timestamp_ns}'
         )
