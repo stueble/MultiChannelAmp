@@ -186,7 +186,7 @@ soundcards:
   "soundcards": {
     "1": {
       "id": 1,
-      "name": "KAB9 #1",
+      "name": "KAB9_1",
       "state": "on",
       "active": true,
       "active_players": ["wohnzimmer", "kueche"],
@@ -196,7 +196,7 @@ soundcards:
     },
     "2": {
       "id": 2,
-      "name": "KAB9 #2",
+      "name": "KAB9_2",
       "state": "suspended",
       "active": false,
       "active_players": [],
@@ -207,20 +207,28 @@ soundcards:
   },
   "players": {
     "wohnzimmer": {
-      "name": "wohnzimmer",
+      "name": "Wohnzimmer",
       "active": true,
       "soundcard_id": 1,
-      "soundcard_name": "KAB9 #1"
+      "soundcard_name": "KAB9_1"
     },
     "schlafzimmer": {
-      "name": "schlafzimmer",
+      "name": "Schlafzimmer",
       "active": false,
       "soundcard_id": 2,
-      "soundcard_name": "KAB9 #2"
+      "soundcard_name": "KAB9_2"
+    },
+    "kueche": {
+      "name": "Küche",
+      "active": true,
+      "soundcard_id": 1,
+      "soundcard_name": "KAB9_1"
     }
   }
 }
 ```
+
+**Note:** The `players` section uses the player `description` field from the configuration in the `name` field for better readability (with umlauts and special characters).
 
 #### Soundcard States
 - **`on`**: Has active players (len(activePlayers) > 0)
@@ -319,7 +327,7 @@ When all players on a soundcard become inactive:
   - File paths: STATUS_JSON_FILE, PID_FILE, SOCKET_PATH, STATUS_FILE
   - DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
 - **Enums:** DeviceState (OFF, ON)
-- **Data Classes:** SoundcardConfig (id, name, description, gpioSuspend, gpioMute, gpioLed, alsaCard, usbDevice, tempSensor, players)
+- **Data Classes:** SoundcardConfig (id, name, gpioSuspend, gpioMute, gpioLed, alsaCard, usbDevice, tempSensor, players: Dict[str, str])
 - **Classes:**
   - `SoundcardController`: Manages individual sound card via GPIO, includes daemon reference
   - `PowerSupplyController`: Manages main power supply via GPIO
@@ -667,16 +675,17 @@ tail -f /var/log/MultiChannelAmpDaemon.log | grep -E "(Muting|MUTE)"
    - **Reason:** Ensures clean hardware shutdown even during daemon termination
    - Prevents amplifiers staying powered if daemon crashes during shutdown
 
-2. **Human-Readable Status Output:** Status JSON now uses description field
-   - **Before (1.2.1):** `"name": "KAB9_1"` (technical ID)
-   - **After (1.2.2):** `"name": "KAB9 #1"` (readable description with umlauts)
+2. **Human-Readable Player Names in Status:** Status JSON now uses player description in name field
+   - **Before (1.2.1):** `"name": "wohnzimmer"` (technical ID)
+   - **After (1.2.2):** `"name": "Wohnzimmer"` (description from config with umlauts)
+   - **Applies to:** Players section only, soundcard names remain technical IDs
    - **Reason:** Better readability in logs and monitoring dashboards (Grafana, etc.)
-   - Umlauts and special characters now properly displayed
+   - Umlauts and special characters now properly displayed for players
 
 ### Implementation Details
-- `SoundcardConfig` dataclass: Added `description` field
-- `setupSoundcards()`: Loads description from YAML config (falls back to name if not present)
-- `getStatus()`: Uses `sc.config.description` instead of `sc.config.name` for JSON output
+- `SoundcardConfig` dataclass: Changed `players` from `Set[str]` to `Dict[str, str]` (name → description mapping)
+- `setupSoundcards()`: Loads player descriptions from YAML config (falls back to name if not present)
+- `getStatus()`: Uses player description in `name` field of players section
 - `stop()`: Reordered shutdown sequence:
   1. Mute all active soundcards (MUTE HIGH)
   2. Suspend all soundcards (SUSPEND HIGH, LED LOW)
@@ -685,19 +694,23 @@ tail -f /var/log/MultiChannelAmpDaemon.log | grep -E "(Muting|MUTE)"
   5. Write final status and cleanup files
 
 ### Configuration File
-- New optional field: `description` in soundcard configuration
+- Player `description` field now used in status output
 - Example:
   ```yaml
   soundcards:
     - id: 1
-      name: KAB9_1           # Technical ID (used internally)
-      description: "KAB9 #1" # Human-readable (used in status JSON)
+      name: KAB9_1
+      players:
+        - name: wohnzimmer          # Technical ID (used as key)
+          description: "Wohnzimmer" # Human-readable (used in status JSON name field)
+        - name: kueche
+          description: "Küche"      # With umlauts
   ```
-- If `description` not provided, `name` is used as fallback (backward compatible)
+- If player `description` not provided, `name` is used as fallback (backward compatible)
 
 ### Backward Compatibility
 - **Fully backward compatible** with configuration files from v1.2.1
-- Existing configs without `description` field continue to work (uses `name` as fallback)
-- Status JSON format unchanged (same fields, just different values in `name`)
+- Existing configs without player `description` field continue to work (uses `name` as fallback)
+- Status JSON format unchanged (same structure, different values in players.name)
 - Socket protocol unchanged
-- Monitoring tools may need adjustment if they rely on exact name matching
+- Monitoring tools may need adjustment if they rely on exact player name matching in displays

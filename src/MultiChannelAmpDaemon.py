@@ -63,14 +63,13 @@ class SoundcardConfig:
     """Configuration for a sound card"""
     id: int
     name: str
-    description: str  # Human-readable description (with umlauts, etc.)
     gpioSuspend: int  # GPIO pin for SUSPEND signal
     gpioMute: int     # GPIO pin for MUTE signal
     gpioLed: int      # GPIO pin for status LED
     alsaCard: str     # ALSA card number
     usbDevice: str    # USB device path
     tempSensor: Optional[str]  # 1-wire temperature sensor ID (e.g., "28-0000...")
-    players: Set[str]
+    players: Dict[str, str]  # playerName -> description mapping
 
 
 def loadConfiguration(configPath):
@@ -473,16 +472,17 @@ class AmpControlDaemon:
                 # Extract GPIO configuration
                 gpio = scConfig.get('gpio', {})
 
-                # Build player set
-                players = set()
+                # Build player dictionary (name -> description)
+                players = {}
                 for player in scConfig.get('players', []):
-                    players.add(player['name'])
+                    playerName = player['name']
+                    playerDescription = player.get('description', playerName)  # Use name as fallback
+                    players[playerName] = playerDescription
 
                 # Create SoundcardConfig
                 soundcardConfig = SoundcardConfig(
                     id=scConfig['id'],
                     name=scConfig['name'],
-                    description=scConfig.get('description', scConfig['name']),  # Use name as fallback
                     gpioSuspend=gpio['suspend'],
                     gpioMute=gpio['mute'],
                     gpioLed=gpio['led'],
@@ -496,7 +496,7 @@ class AmpControlDaemon:
                 self.soundcards[soundcardConfig.id] = SoundcardController(soundcardConfig, self)
 
                 # Map players to soundcard
-                for playerName in players:
+                for playerName in players.keys():
                     self.playerToSoundcard[playerName] = soundcardConfig.id
 
                 logger.info(f"Configured {soundcardConfig.name}: {len(players)} players, "
@@ -627,7 +627,7 @@ class AmpControlDaemon:
 
             status['soundcards'][scId] = {
                 'id': scId,
-                'name': sc.config.description,  # Use description for better readability (with umlauts)
+                'name': sc.config.name,  # Use technical name for soundcard
                 'state': state,
                 'active': sc.isActive(),
                 'active_players': list(sc.activePlayers),
@@ -637,13 +637,13 @@ class AmpControlDaemon:
             }
 
             # Add all players for this soundcard to players section
-            for playerName in sc.config.players:
+            for playerName, playerDescription in sc.config.players.items():
                 isActive = playerName in sc.activePlayers
                 status['players'][playerName] = {
-                    'name': playerName,
+                    'name': playerDescription,  # Use description for better readability (with umlauts)
                     'active': isActive,
                     'soundcard_id': scId,
-                    'soundcard_name': sc.config.description  # Use description for better readability
+                    'soundcard_name': sc.config.name
                 }
 
         return status
