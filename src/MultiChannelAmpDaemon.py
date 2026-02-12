@@ -3,7 +3,7 @@
 Multi-Channel Amplifier Control Daemon
 Controls power supply and sound cards based on Squeezelite activity
 
-Version: 1.3.0
+Version: 1.3.1
 """
 
 import sys
@@ -21,14 +21,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 # Version
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 # Configuration paths
 DEFAULT_CONFIG_PATH = "/etc/MultiChannelAmpDaemon.yaml"
 
 # Configuration - will be set based on config file and debug mode
 SOUNDCARD_TIMEOUT = 15 * 60  # 15 minutes in seconds (normal mode)
-SOUNDCARD_MUTE_DELAY = 5  # 5 seconds delay between mute and suspend
 POWER_SUPPLY_TIMEOUT = 30 * 60  # 30 minutes in seconds (normal mode)
 GPIO_DELAY = 1.0  # 1 second delay between GPIO operations
 GPIO_ERROR_LED = 26  # GPIO pin for error LED
@@ -261,19 +260,15 @@ class SoundcardController:
             try:
                 import RPi.GPIO as GPIO
 
-                # Ensure MUTE is HIGH (should already be from mute())
+                # Ensure MUTE is HIGH (should already be MUTED state)
                 if self.state != DeviceState.MUTED:
+                    logger.warning(f"{self.config.name}: Suspend called but not in MUTED state, setting MUTE")
                     GPIO.output(self.config.gpioMute, GPIO.HIGH)
                     logger.debug(f"{self.config.name}: MUTE set to HIGH")
 
-                # Wait for mute-to-suspend delay
-                logger.debug(f"{self.config.name}: Waiting {SOUNDCARD_MUTE_DELAY}s before suspend")
-                time.sleep(SOUNDCARD_MUTE_DELAY)
-
-                # Check again if players became active during delay
+                # Check if players became active
                 if len(self.activePlayers) > 0:
-                    logger.info(f"Suspend of {self.config.name} cancelled during delay")
-                    # Unmute again
+                    logger.info(f"Suspend of {self.config.name} cancelled - players became active")
                     self.unmute()
                     return
 
@@ -493,15 +488,14 @@ class AmpControlDaemon:
         config = loadConfiguration(self.configPath)
 
         # Update global timeouts if not in debug mode
-        global SOUNDCARD_TIMEOUT, POWER_SUPPLY_TIMEOUT, GPIO_DELAY, SOUNDCARD_MUTE_DELAY
+        global SOUNDCARD_TIMEOUT, POWER_SUPPLY_TIMEOUT, GPIO_DELAY
         if not DEBUG_MODE:
             globalConfig = config.get('global', {})
             SOUNDCARD_TIMEOUT = globalConfig.get('soundcard_timeout', SOUNDCARD_TIMEOUT)
             POWER_SUPPLY_TIMEOUT = globalConfig.get('power_supply_timeout', POWER_SUPPLY_TIMEOUT)
             GPIO_DELAY = globalConfig.get('gpio_delay', GPIO_DELAY)
-            SOUNDCARD_MUTE_DELAY = globalConfig.get('soundcard_mute_delay', SOUNDCARD_MUTE_DELAY)
 
-            logger.info(f"Timeouts from config: Soundcard={SOUNDCARD_TIMEOUT}s, PowerSupply={POWER_SUPPLY_TIMEOUT}s, MuteDelay={SOUNDCARD_MUTE_DELAY}s")
+            logger.info(f"Timeouts from config: Soundcard={SOUNDCARD_TIMEOUT}s, PowerSupply={POWER_SUPPLY_TIMEOUT}s")
 
         # Parse soundcard configurations
         soundcardsConfig = config.get('soundcards', [])

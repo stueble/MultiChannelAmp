@@ -1,6 +1,6 @@
 # Multi-Channel Amplifier Control Daemon - Technical Specification
 
-## Version: 1.3.0
+## Version: 1.3.1
 
 ## Overview
 A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier system with three 8-channel USB sound cards and a main power supply. The daemon monitors Squeezelite instances and manages power states based on playback activity. It exports system status via JSON file for monitoring tools like Telegraf.
@@ -73,14 +73,13 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
    - Check if power supply can be deactivated
 
 4. **Sound Card Suspend (after timeout)**
-   - Sequence with mute-to-suspend delay:
-     1. Verify MUTE GPIO is HIGH (state should be MUTED)
-     2. Wait SOUNDCARD_MUTE_DELAY seconds (default 5 seconds)
-     3. Check if players became active during delay - if yes, call `unmute()` and abort
-     4. Set SUSPEND GPIO to HIGH
-     5. Wait GPIO_DELAY
-     6. Set LED GPIO to LOW
-     7. Set state=SUSPENDED
+   - When timeout expires after mute:
+     1. Verify state is MUTED (defensive check)
+     2. Check if players became active - if yes, call `unmute()` and abort
+     3. Set SUSPEND GPIO to HIGH
+     4. Wait GPIO_DELAY
+     5. Set LED GPIO to LOW
+     6. Set state=SUSPENDED
    - After suspend, trigger power supply deactivation check
 
 5. **Power Supply Deactivation**
@@ -88,11 +87,25 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
    - Schedule deactivation after 30 minutes (POWER_SUPPLY_TIMEOUT)
    - Set GPIO to LOW (OFF, inverted logic)
 
+6. **Daemon Shutdown (SIGTERM, SIGINT, normal stop)**
+   - Controlled shutdown sequence:
+     1. Stop status update timer
+     2. Shutdown all sound cards:
+        - For each sound card not in SUSPENDED state:
+          - Set MUTE GPIO to HIGH
+          - Wait GPIO_DELAY
+          - Set SUSPEND GPIO to HIGH
+          - Set LED GPIO to LOW
+          - Set state=SUSPENDED
+     3. Deactivate power supply (GPIO LOW)
+     4. Activate error LED (GPIO HIGH) - indicates daemon not running
+     5. Write final status to JSON file
+     6. Close Unix socket and cleanup files (PID, status files)
+
 ### Timeout Configuration
 
 **Normal Mode:**
 - SOUNDCARD_TIMEOUT: 15 minutes (900 seconds)
-- SOUNDCARD_MUTE_DELAY: 5 seconds
 - POWER_SUPPLY_TIMEOUT: 30 minutes (1800 seconds)
 - GPIO_DELAY: 1.0 seconds
 - STATUS_UPDATE_INTERVAL: 30 seconds
@@ -100,7 +113,6 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
 **Debug Mode (--debug flag):**
 - SOUNDCARD_TIMEOUT: 1 minute (60 seconds)
 - POWER_SUPPLY_TIMEOUT: 2 minutes (120 seconds)
-- SOUNDCARD_MUTE_DELAY: 5 seconds (unchanged in debug mode)
 - Timeout values displayed in startup banner
 
 ### Configuration File
@@ -111,7 +123,6 @@ A Python daemon for Raspberry Pi 5 that controls a multi-channel amplifier syste
 ```yaml
 global:
   soundcard_timeout: 900
-  soundcard_mute_delay: 5
   power_supply_timeout: 1800
   gpio_delay: 1.0
   gpio_power_supply: 13
@@ -267,6 +278,8 @@ When daemon stops normally (SIGTERM, SIGINT):
 7. Remove PID file, status file, JSON status file
 8. Exit
 
+**Note:** Error LED is turned on during shutdown to indicate the daemon is not running, providing a visual status indicator.
+
 ### Daemon Instance Protection
 - Use PID file at `/var/run/MultiChannelAmpDaemon.pid`
 - Check if daemon already running on startup
@@ -316,12 +329,12 @@ When all players on a soundcard become inactive:
 #### 1. MultiChannelAmpDaemon.py (Main Daemon)
 **Purpose:** Background daemon that manages power supply and sound card states
 
-**Version:** 1.3.0
+**Version:** 1.3.1
 
 **Key Components:**
-- **Version Constant:** `VERSION = "1.3.0"`
+- **Version Constant:** `VERSION = "1.3.1"`
 - **Configuration Constants:** 
-  - SOUNDCARD_TIMEOUT, SOUNDCARD_MUTE_DELAY, POWER_SUPPLY_TIMEOUT
+  - SOUNDCARD_TIMEOUT, POWER_SUPPLY_TIMEOUT
   - GPIO_DELAY, GPIO_ERROR_LED, GPIO_POWER_SUPPLY
   - STATUS_UPDATE_INTERVAL = 30
   - File paths: STATUS_JSON_FILE, PID_FILE, SOCKET_PATH, STATUS_FILE
@@ -431,7 +444,7 @@ Contains complete system configuration including:
 ================================================================================
 =                                                                              =
 =  MULTI-CHANNEL AMP DAEMON STARTING                                          =
-=  Version: 1.3.0                                                             =
+=  Version: 1.3.1                                                             =
 =                                                                              =
 ================================================================================
 ```
@@ -441,7 +454,7 @@ In debug mode, also show timeouts:
 ================================================================================
 =                                                                              =
 =  MULTI-CHANNEL AMP DAEMON STARTING (DEBUG MODE)                             =
-=  Version: 1.3.0                                                             =
+=  Version: 1.3.1                                                             =
 =  Soundcard timeout: 60s, Power supply timeout: 120s                         =
 =                                                                              =
 ================================================================================
@@ -582,12 +595,12 @@ cat /sys/bus/w1/devices/28-00000abcdef0/w1_slave
 8. **Alert System:** Temperature threshold alerts
 
 ### Version Management
-- Current: 1.3.0
+- Current: 1.3.1
 - Increment PATCH (1.3.x) for bug fixes
 - Increment MINOR (1.x.0) for new features (backward compatible)
 - Increment MAJOR (x.0.0) for breaking changes
 - Update VERSION constant, docstring, and startup banner
-- Document changes in commit messages
+- Document changes in ChangeLog.md
 
 ## Testing Considerations
 
@@ -621,178 +634,15 @@ jq '.players' /var/run/MultiChannelAmpDaemon.status.json
 tail -f /var/log/MultiChannelAmpDaemon.log | grep -E "(Muting|MUTE)"
 ```
 
-## Changes from Version 1.1.0 to 1.2.0
+## Version History
 
-### Major Changes
-1. **Immediate Mute on Stop:** When a player stops, MUTE is now set HIGH immediately (in `muteImmediately()`), not after SOUNDCARD_TIMEOUT
-2. **Players Section in Status:** Added dedicated `players` section in JSON status with individual player status
-3. **Enhanced Error Handling:** `handleError()` method properly activates error LED and performs emergency shutdown
-4. **Improved Timer Cancellation:** Power supply `activate()` always cancels pending timers first
-5. **Configuration Loading:** GPIO pins now configurable via YAML (gpio_power_supply, gpio_error_led)
+For a complete version history with detailed change descriptions, please see [ChangeLog.md](ChangeLog.md).
 
-### Implementation Details
-- `deactivatePlayer()` now calls `muteImmediately()` when last player stops
-- `deactivate()` verifies MUTE is already HIGH before mute delay
-- `getStatus()` builds players section from all configured soundcard players
-- Error LED state tracked with `errorLedActive` boolean flag
-- Enhanced logging for mute operations and timer cancellations
+**Current Version:** 1.3.1
 
-### Backward Compatibility
-- Configuration file format unchanged
-- Socket protocol unchanged
-- Status file adds new `players` section (additive change)
-- All existing monitoring tools continue to work
-
-## Changes from Version 1.2.0 to 1.2.1
-
-### Safety Enhancement
-1. **Inverted Power Supply Logic:** Power supply GPIO control inverted for safety
-   - **Before (1.2.0):** GPIO HIGH = OFF, GPIO LOW = ON
-   - **After (1.2.1):** GPIO LOW = OFF, GPIO HIGH = ON
-   - **Reason:** If Raspberry Pi crashes, shuts down, or loses power, GPIO pins default to LOW, automatically turning OFF the power supply
-   - This prevents the amplifier power supply from staying on indefinitely in case of system failure
-
-### Implementation Details
-- `PowerSupplyController.setupGpio()`: Initializes GPIO to LOW (OFF)
-- `PowerSupplyController.activate()`: Sets GPIO to HIGH (ON)
-- `PowerSupplyController.deactivate()`: Sets GPIO to LOW (OFF)
-- `handleError()`: Emergency shutdown sets GPIO to LOW (OFF)
-- Updated all log messages to reflect inverted logic
-- Class docstring updated: "Controls the main power supply via GPIO (inverted logic for safety)"
-
-### Hardware Impact
-- **BREAKING CHANGE:** External circuit must be inverted to match new logic
-- Requires hardware modification: relay or transistor circuit must respond to HIGH=ON instead of LOW=ON
-- Significantly improves system safety in case of Raspberry Pi failure
-
-### Backward Compatibility
-- **NOT backward compatible** with hardware designed for v1.2.0
-- Configuration file format unchanged
-- Socket protocol unchanged
-- Status file format unchanged
-- Monitoring tools unaffected
-
-## Changes from Version 1.2.2 to 1.3.0
-
-### Major Refactoring - Cleaner State Machine
-This is a **MINOR version bump** due to significant internal refactoring, though the external API remains compatible.
-
-### 1. New State Machine with Three States
-**DeviceState Enum:**
-- `SUSPENDED = 0`: Fully off (SUSPEND=HIGH, MUTE=HIGH, LED=LOW)
-- `MUTED = 1`: Active but muted (SUSPEND=LOW, MUTE=HIGH, LED=HIGH)
-- `ON = 2`: Active and unmuted (SUSPEND=LOW, MUTE=LOW, LED=HIGH)
-
-**PowerState Enum** (separate for power supply):
-- `OFF = 0`
-- `ON = 1`
-
-**Previous State Model (v1.2.2):**
-- Only two states: OFF and ON
-- MUTED state was implicit (not tracked)
-
-### 2. Cleaner Method Names
-**Before (v1.2.2) → After (v1.3.0):**
-- `activate()` → `resume()` (from suspended) + `unmute()` (from muted)
-- `deactivate()` → `suspend()` (to suspended)
-- `muteImmediately()` → `mute()` (to muted state)
-- `scheduleDeactivation()` → `scheduleSuspend()`
-
-**New Helper Methods:**
-- `isActive()`: Returns True if not suspended
-- `isMuted()`: Returns True if muted
-- `isSuspended()`: Returns True if suspended
-
-### 3. Fixed Bug: Unmuting When Player Restarts
-**Problem in v1.2.2:**
-When a player restarted while soundcard was MUTED (waiting for suspend), the soundcard was not unmuted, causing no audio.
-
-**Solution in v1.3.0:**
-`activatePlayer()` now checks current state:
-- If `SUSPENDED`: calls `resume()` (full resume sequence)
-- If `MUTED`: calls `unmute()` (just clear mute)  ← **This fixes the bug!**
-- If `ON`: no action needed
-
-### 4. State Transitions
-```
-SUSPENDED  ──resume()──→  ON
-    ↑                      ↓
-    │                   mute()
-    │                      ↓
-    └────suspend()────  MUTED
-                           ↑
-                      unmute()
-                           ↓
-                          ON
-```
-
-### Implementation Details
-- All GPIO operations now update the `state` field correctly
-- `getStatus()` uses actual state enum instead of inferring from active players
-- Separate `PowerState` enum for power supply (simpler ON/OFF model)
-- Consistent naming: `resume()`/`suspend()` for major transitions, `mute()`/`unmute()` for quick toggles
-- All internal references to `DeviceState.OFF` changed to `DeviceState.SUSPENDED`
-- `suspend()` verifies state is MUTED before suspending (defensive check)
-- `unmute()` checks if suspended and warns (prevents invalid state transitions)
-
-### Backward Compatibility
-- **Fully compatible** with existing configuration files
-- **Fully compatible** with Squeezelite callback protocol
-- Status JSON format unchanged (same state strings: "on", "muted", "suspended")
-- Socket protocol unchanged
-- Externally visible behavior identical (except bug fix)
-- No changes required to monitoring tools
-
-### Benefits
-1. **Bug Fix:** Unmute works correctly when player restarts from MUTED state
-2. **Clearer Code:** Method names clearly indicate what they do
-3. **Better State Tracking:** State enum always reflects actual GPIO state
-4. **Easier Debugging:** State is explicit in logs and status
-5. **More Maintainable:** State machine logic is clearer and easier to extend
-
-### Improvements
-1. **Proper Shutdown Sequence:** Hardware is now shut down before error LED activation
-   - **Before (1.2.1):** Error LED turned on first, then cleanup
-   - **After (1.2.2):** Soundcards muted/suspended → Power supply off → Error LED on
-   - **Reason:** Ensures clean hardware shutdown even during daemon termination
-   - Prevents amplifiers staying powered if daemon crashes during shutdown
-
-2. **Human-Readable Player Names in Status:** Status JSON now uses player description in name field
-   - **Before (1.2.1):** `"name": "wohnzimmer"` (technical ID)
-   - **After (1.2.2):** `"name": "Wohnzimmer"` (description from config with umlauts)
-   - **Applies to:** Players section only, soundcard names remain technical IDs
-   - **Reason:** Better readability in logs and monitoring dashboards (Grafana, etc.)
-   - Umlauts and special characters now properly displayed for players
-
-### Implementation Details
-- `SoundcardConfig` dataclass: Changed `players` from `Set[str]` to `Dict[str, str]` (name → description mapping)
-- `setupSoundcards()`: Loads player descriptions from YAML config (falls back to name if not present)
-- `getStatus()`: Uses player description in `name` field of players section
-- `stop()`: Reordered shutdown sequence:
-  1. Mute all active soundcards (MUTE HIGH)
-  2. Suspend all soundcards (SUSPEND HIGH, LED LOW)
-  3. Deactivate power supply (GPIO LOW)
-  4. Activate error LED (GPIO HIGH)
-  5. Write final status and cleanup files
-
-### Configuration File
-- Player `description` field now used in status output
-- Example:
-  ```yaml
-  soundcards:
-    - id: 1
-      name: KAB9_1
-      players:
-        - name: wohnzimmer          # Technical ID (used as key)
-          description: "Wohnzimmer" # Human-readable (used in status JSON name field)
-        - name: kueche
-          description: "Küche"      # With umlauts
-  ```
-- If player `description` not provided, `name` is used as fallback (backward compatible)
-
-### Backward Compatibility
-- **Fully backward compatible** with configuration files from v1.2.1
-- Existing configs without player `description` field continue to work (uses `name` as fallback)
-- Status JSON format unchanged (same structure, different values in players.name)
-- Socket protocol unchanged
-- Monitoring tools may need adjustment if they rely on exact player name matching in displays
+**Recent Changes:**
+- Removed unnecessary SOUNDCARD_MUTE_DELAY (v1.3.1)
+- Cleaner state machine with three states (v1.3.0)
+- Fixed unmute bug when player restarts (v1.3.0)
+- Human-readable player names in status (v1.2.2)
+- Inverted power supply logic for safety (v1.2.1)
