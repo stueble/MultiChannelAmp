@@ -11,23 +11,5 @@ This repository includes the following components:
 - *config/alsa/asound.conf*: My configuration file for the three KAB9 sound cards
 
 The code was interactively generated with https://claude.ai as a test case. Although some iterations had been necessary to get it finally working, I am so far happy with the result. To continue the development using AI, you can start with the current specification at [doc/Specification.md](doc/Specification.md)
-
-## Installation (outdated)
-
-Copy files to
-* ```/usr/local/bin/MultiChannelAmpDaemon.py``` - Main daemon (executable)
-* ```/usr/local/bin/MultiChannelAmpCallback.py``` - Callback script (executable)
-
-Optionally adapt and copy the following configuration files
-* Install and enable system service script ```MultiChannelDaemon.service```, as described in [config/systemd/](config/systemd/)
-* ```/etc/udev/rules.d/90-usb-audio.rules``` - Ensure that sound card ids will not change, see [config/udev/](config/udev/)
-* ```/etc/asound.conf``` - The ALSA configuration I am using, see [config/alsa/](config/alsa/)
-
-## Usage example (outdated)
-
-```bash
-squeezelite -n kitchen \
-  -S "/usr/local/bin/MultiChannelAmpCallback.py kitchen" \
-  -o kitchen &
 ```
 
