@@ -2,8 +2,9 @@
 
 ## Version 1.3.1 (2026-03-04)
 
-### Bug Fixes & Cleanup
-- **Use of 3rd USB controller:** Only a hardware change: I found out that it is not possible to use two sound cards at the same time on one USB controller. Since the four USB ports of the raspberry pi5 are connected to only two controllers, I used an USB OTG adapter to be able to connect the third sound card to the USB-C connector. This is not neccessary, if you only use 2 KAB9 sound cards, or if your sound cards support less channels or high speed USB. The KAB9 cards only support fast USB (USB1.1) which means they always allocate the maximum needed bandwidth.
+### Hardware change
+
+I found out that it is not possible to use two sound cards at the same time on one USB controller. Since the four USB ports of the raspberry pi5 are connected to only two controllers, I used an USB OTG adapter to be able to connect the third sound card to the USB-C connector. This is not neccessary, if you only use 2 KAB9 sound cards, or if your sound cards support less channels or high speed USB. The KAB9 cards only support fast USB (USB1.1) which means they always allocate the maximum needed bandwidth.
 
 ## Version 1.3.1 (2026-02-08)
 
